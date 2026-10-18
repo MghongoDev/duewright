@@ -6,6 +6,7 @@ import socket
 import subprocess
 import sys
 import time
+from datetime import date, timedelta
 
 import httpx
 
@@ -348,3 +349,24 @@ def test_editing_a_task_that_is_not_there_changes_nothing(tmp_path):
     result = edit_and_list("3\n99\n\nhigh\n\n0\n", tmp_path, tmp_path)
     assert "No task with id 99." in result.stdout
     assert "Goodbye." in result.stdout
+
+
+def test_the_menu_marks_a_task_that_is_about_to_become_due(tmp_path):
+    """The warning arrives before the day, not on it."""
+    soon = (date.today() + timedelta(days=2)).isoformat()
+    result = run_menu("1\nWater the plants\nmedium\n" + soon + "\n0\n", tmp_path, tmp_path)
+    assert "DUE SOON" in result.stdout
+
+
+def test_the_menu_leaves_a_task_due_today_to_its_own_marker(tmp_path):
+    today = date.today().isoformat()
+    result = run_menu("1\nPay the rent\nmedium\n" + today + "\n0\n", tmp_path, tmp_path)
+    assert "DUE TODAY" in result.stdout
+    assert "DUE SOON" not in result.stdout
+
+
+def test_the_menu_leaves_an_overdue_task_to_its_own_marker(tmp_path):
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    result = run_menu("1\nPay the rent\nmedium\n" + yesterday + "\n0\n", tmp_path, tmp_path)
+    assert "OVERDUE" in result.stdout
+    assert "DUE SOON" not in result.stdout
