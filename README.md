@@ -113,6 +113,31 @@ The JSON file, when you use it, is plain JSON and looks like this:
 
 Three details are worth knowing about it. Every write goes to a temporary file that is swapped into place in one step, so a crash part-way through cannot leave a half-written file. If the file cannot be read, Duewright keeps it under a name like `tasks.json.corrupt-20261018-182011` and starts with an empty list, because that file may be the only copy of your tasks. And a file written by a newer version is refused rather than opened, so an older program cannot quietly drop fields it does not understand.
 
+## Why the database is the default
+
+Two copies of the program can run at once, so one store has to cope with two writers. `scripts/concurrency_demo.py` measures what each store does: it starts four processes, each adding fifty tasks, and counts every task as stored, as one a worker failed to add, or as one another process overwrote.
+
+The database stored all two hundred tasks, on Windows and on Linux. The file lost almost everything. On Windows one task of the two hundred survived and every process died with a permission error while replacing the file. On Linux none survived: the processes wrote over each other's work, one of them read the file half written, and the program moved it aside as unreadable.
+
+```
+$ python scripts/concurrency_demo.py --backend json     # on Linux
+backend: json
+workers: 4, tasks each: 50
+tasks in the store before: 0
+tasks the workers were asked to add: 200
+tasks the workers reported adding: 2
+tasks in the store afterwards: 0
+tasks a worker failed to add: 198
+tasks overwritten by another process: 2
+worker 0 failed: CorruptStorageError: it is not valid JSON (Extra data: line 14 column 2 (char 235))
+worker 1 failed: FileNotFoundError: [Errno 2] No such file or directory: '/tmp/duewright-demo-9lasn8uu/tasks.json.tmp' -> '/tmp/duewright-demo-9lasn8uu/tasks.json'
+worker 2 failed: FileNotFoundError: [Errno 2] No such file or directory: '/tmp/duewright-demo-9lasn8uu/tasks.json.tmp' -> '/tmp/duewright-demo-9lasn8uu/tasks.json'
+worker 3 failed: FileNotFoundError: [Errno 2] No such file or directory: '/tmp/duewright-demo-9lasn8uu/tasks.json' -> '/tmp/duewright-demo-9lasn8uu/tasks.json.corrupt-20261018-172721'
+Not everything arrived: this store lost work when two processes wrote at once.
+```
+
+The exact numbers move from run to run, because this is a race. The database result has not moved: it stored all two hundred tasks in every run, on both platforms. Continuous integration runs the demonstration on Linux on every push, and the suite runs it with smaller numbers on both platforms.
+
 ## Moving a JSON file into the database
 
 If your tasks are in a JSON file, one command moves them into the database:
