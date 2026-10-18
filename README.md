@@ -164,6 +164,29 @@ A missing task answers 404 with a body naming the task. A body or a query that m
 
 The request models check the shape of what arrives and the service checks what it means, so the API cannot create a task the menu would refuse. Every route that reaches the store is a plain function rather than an async one, so a slow store delays one request instead of the whole server.
 
+## Docker
+
+One command builds and runs the API, without a Python setup on the machine:
+
+```
+export DUEWRIGHT_API_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+docker build -t duewright .
+docker run --name duewright -p 127.0.0.1:8000:8000 \
+  -e DUEWRIGHT_API_KEY -v duewright-data:/data duewright
+```
+
+Inside the container the server binds to every address, because that is its own network. The published port is limited to `127.0.0.1`, so the port is not open to your network. The image runs as a user that is not root.
+
+The tasks live in the `duewright-data` volume rather than in the container, so replacing the container leaves them alone:
+
+```
+docker stop duewright && docker rm duewright
+docker run --name duewright -p 127.0.0.1:8000:8000 \
+  -e DUEWRIGHT_API_KEY -v duewright-data:/data duewright
+```
+
+`.dockerignore` keeps the virtual environment, the repository history, local task files and `.env` out of the image. Continuous integration builds the image on every push and runs these same checks, including the restart, so the image is proved rather than assumed.
+
 ## Where the tasks live
 
 A SQLite database called `tasks.db`, in a folder named `.duewright` inside your home folder. It lives there rather than beside the code, so reinstalling or upgrading the program cannot touch your tasks. Set `DUEWRIGHT_DATA_DIR` to keep it somewhere else, which is also how the tests stay away from real data.
