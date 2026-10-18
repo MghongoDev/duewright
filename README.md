@@ -26,6 +26,12 @@ The `dev` extra brings pytest, which is what the tests need:
 python -m pytest
 ```
 
+The server lives behind its own extra, so the menu works without it. Add it when you want the API:
+
+```
+pip install -e ".[api]"
+```
+
 ## What the list shows
 
 ```
@@ -83,6 +89,57 @@ No tasks yet.
 Choose an option: 0
 Goodbye.
 ```
+
+## The same list over HTTP
+
+The API runs on the same service the menu uses, so a rule fixed once is fixed in both places.
+
+```
+duewright serve
+```
+
+That binds to `127.0.0.1:8000`. It is the loopback address rather than every address, so starting the server does not put your task list on the network. `--host` and `--port` change both. Open `http://127.0.0.1:8000/docs` to try every route by hand.
+
+The routes, all under `/api/v1`:
+
+```
+GET    /health          the server is up, without touching the store
+GET    /tasks           list, with done, q, limit and offset
+POST   /tasks           create, answers 201
+GET    /tasks/{id}      read one
+PATCH  /tasks/{id}      change the fields the body names
+DELETE /tasks/{id}      delete, answers 204 with no body
+```
+
+Listing answers with an envelope, so a client always knows where it is:
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "title": "Buy milk",
+      "done": false,
+      "priority": "high",
+      "due_date": "2026-10-05",
+      "created_at": "2026-10-18T18:20:11+00:00"
+    }
+  ],
+  "total": 1,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+A partial update tells a field that was left out from one sent as null. Leaving `due_date` out keeps it, and sending `"due_date": null` clears it. A null title is refused, because a task without one makes no sense:
+
+```
+curl -X PATCH localhost:8000/api/v1/tasks/1 -H "Content-Type: application/json" -d '{"due_date": null}'
+```
+
+A missing task answers 404 with a body naming the task. A body or a query that makes no sense answers 422, and a misspelled field fails loudly instead of being ignored. Every error is mapped in one place, in `duewright/api/app.py`.
+
+The request models check the shape of what arrives and the service checks what it means, so the API cannot create a task the menu would refuse. Every route that reaches the store is a plain function rather than an async one, so a slow store delays one request instead of the whole server.
 
 ## Where the tasks live
 
@@ -161,6 +218,10 @@ duewright/
 │   ├── config.py         # where the tasks live, and which repository keeps them
 │   ├── errors.py         # the errors the package raises
 │   ├── models.py         # Task
+│   ├── api/
+│   │   ├── app.py        # the routes, and the one place errors are mapped
+│   │   ├── deps.py       # what a route asks for, so a test can swap the store
+│   │   └── schemas.py    # the shape a request has and a response always has
 │   ├── repositories/
 │   │   ├── base.py       # the interface a repository has to satisfy
 │   │   ├── json_repo.py  # the only module that knows about JSON
@@ -169,7 +230,10 @@ duewright/
 │   │   └── sqlite_repo.py # the database, and the only module that knows SQL
 │   ├── service.py        # the rules: ordering, overdue, filter, search, summary
 │   └── validators.py     # pure functions for the input
+├── scripts/
+│   └── concurrency_demo.py   # what several processes writing at once costs
 ├── tests/
+│   ├── test_api.py           # the routes, in process, over an in-memory store
 │   ├── test_repositories.py  # the contract every repository has to satisfy
 │   ├── test_json_repo.py     # the behaviours that belong to the file alone
 │   ├── test_sqlite_repo.py   # the behaviours that belong to the database alone
@@ -180,11 +244,12 @@ duewright/
 └── docs/adr/             # the decisions, and why they were taken
 ```
 
-Three rules keep those apart, and they are the main lesson of the project:
+Four rules keep those apart, and they are the main lesson of the project:
 
 1. Only `cli.py` calls `input()` or `print()`.
 2. The service never touches the disk. It asks a repository, and only the repository modules know about files, JSON and SQL.
 3. `validators.py` holds pure functions, so each rule is a short test.
+4. The menu and the API both work through the same service, so a rule added for one is enforced in the other.
 
 ## What I would improve
 

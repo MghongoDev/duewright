@@ -1,13 +1,15 @@
 """Pure functions that check and clean what the user typed.
 
-Each function either returns a clean value or raises ValueError with a message
-the menu can show. Nothing here reads input or prints, which is what makes
-these rules easy to test.
+Each function either returns a clean value or raises a ValueError carrying a
+message the menu can show. The two that decide what a task means raise
+InvalidTaskError, which is a ValueError as well, so the menu still catches one
+kind of error while the API can map that one onto a 422.
 """
 
 from datetime import date
 from typing import Optional
 
+from duewright.errors import InvalidTaskError
 from duewright.models import PRIORITIES
 
 MAX_TITLE_LENGTH = 100
@@ -19,12 +21,12 @@ STATES = ("all", "pending", "done")
 
 
 def clean_title(text: str) -> str:
-    """Return a trimmed title, or raise ValueError when it cannot be used."""
+    """Return a trimmed title, or raise InvalidTaskError when it cannot be used."""
     title = text.strip()
     if not title:
-        raise ValueError("A title is required.")
+        raise InvalidTaskError("A title is required.")
     if len(title) > MAX_TITLE_LENGTH:
-        raise ValueError(f"A title can be at most {MAX_TITLE_LENGTH} characters.")
+        raise InvalidTaskError(f"A title can be at most {MAX_TITLE_LENGTH} characters.")
     return title
 
 
@@ -50,10 +52,10 @@ def parse_yes_no(text: str) -> bool:
 
 
 def parse_priority(text: str) -> str:
-    """Return low, medium or high, or raise ValueError for anything else."""
+    """Return low, medium or high, or raise InvalidTaskError for anything else."""
     priority = text.strip().lower()
     if priority not in PRIORITIES:
-        raise ValueError("Priority is low, medium or high.")
+        raise InvalidTaskError("Priority is low, medium or high.")
     return priority
 
 

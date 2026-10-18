@@ -21,6 +21,14 @@ class UnknownBackendError(ValueError):
     """The settings name a place to keep tasks that this program does not have."""
 
 
+class InvalidTaskError(ValueError):
+    """A task was asked to be created or changed in a way that makes no sense.
+
+    It is a ValueError, so the menu catches one kind of error and reports the
+    message, while the API maps it onto a 422.
+    """
+
+
 class MigrationError(Exception):
     """The tasks could not be moved from the file into the database."""
 

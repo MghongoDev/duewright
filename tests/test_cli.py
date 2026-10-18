@@ -2,8 +2,12 @@
 
 import json
 import os
+import socket
 import subprocess
 import sys
+import time
+
+import httpx
 
 CREATED = "2026-10-18T17:52:04+00:00"
 
@@ -156,3 +160,89 @@ def test_an_unknown_command_says_so(tmp_path):
     result = run_command(["sing"], tmp_path, tmp_path)
     assert result.returncode == 2
     assert "is not a command" in result.stdout
+
+
+def free_port():
+    """A port nothing is listening on."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def start_server(tmp_path, *arguments):
+    """Start the server as a process, with its log going to a file."""
+    environment = dict(os.environ, DUEWRIGHT_DATA_DIR=str(tmp_path))
+    environment.pop("DUEWRIGHT_BACKEND", None)
+    log = open(tmp_path / "server.log", "w", encoding="utf-8")
+    process = subprocess.Popen(
+        [sys.executable, "-m", "duewright", "serve", *arguments],
+        env=environment,
+        cwd=str(tmp_path),
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+    )
+    return process, log
+
+
+def wait_for_health(port, tmp_path, timeout=60.0):
+    """Wait until the server answers, then return that response."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            return httpx.get(f"http://127.0.0.1:{port}/health", timeout=5.0)
+        except httpx.HTTPError:
+            time.sleep(0.25)
+    log = (tmp_path / "server.log").read_text(encoding="utf-8")
+    raise AssertionError(f"the server never answered:\n{log}")
+
+
+def test_the_serve_command_answers_over_http(tmp_path):
+    """The server starts where it is told and answers the routes."""
+    port = free_port()
+    server, log = start_server(tmp_path, "--port", str(port))
+    try:
+        health = wait_for_health(port, tmp_path)
+        assert health.status_code == 200
+        assert health.json() == {"status": "ok"}
+        created = httpx.post(
+            f"http://127.0.0.1:{port}/api/v1/tasks",
+            json={"title": "Buy milk", "priority": "high"},
+            timeout=10.0,
+        )
+        assert created.status_code == 201
+        listed = httpx.get(f"http://127.0.0.1:{port}/api/v1/tasks", timeout=10.0).json()
+        assert listed["total"] == 1
+        assert listed["items"][0]["title"] == "Buy milk"
+    finally:
+        server.terminate()
+        server.wait(timeout=30)
+        log.close()
+
+
+def test_a_task_crosses_between_the_menu_and_the_api(tmp_path):
+    """A task created over HTTP is in the menu, and one added in the menu is over HTTP."""
+    port = free_port()
+    server, log = start_server(tmp_path, "--port", str(port))
+    try:
+        wait_for_health(port, tmp_path)
+        created = httpx.post(
+            f"http://127.0.0.1:{port}/api/v1/tasks",
+            json={"title": "Added over HTTP"},
+            timeout=10.0,
+        )
+        assert created.status_code == 201
+
+        listed = run_menu("2\n0\n", tmp_path, tmp_path)
+        assert "Added over HTTP" in listed.stdout
+
+        run_menu("1\nAdded in the menu\nlow\n\n0\n", tmp_path, tmp_path)
+        over_http = httpx.get(f"http://127.0.0.1:{port}/api/v1/tasks", timeout=10.0).json()
+        assert over_http["total"] == 2
+        titles = {task["title"] for task in over_http["items"]}
+        assert titles == {"Added over HTTP", "Added in the menu"}
+    finally:
+        server.terminate()
+        server.wait(timeout=30)
+        log.close()

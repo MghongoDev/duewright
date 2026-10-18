@@ -5,13 +5,18 @@ every rule here can be tested on its own.
 """
 
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
+from duewright.errors import InvalidTaskError
 from duewright.models import Task
 from duewright.repositories.base import TaskRepository
+from duewright.validators import clean_title, parse_priority
 
 # The order the display puts priorities in, best first.
 PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+# The fields of a task that a change may name.
+CHANGEABLE_FIELDS = ("title", "priority", "due_date", "done")
 
 
 def sort_key(task: Task) -> tuple:
@@ -55,8 +60,14 @@ class TaskService:
         priority: str = "medium",
         due_date: Optional[date] = None,
     ) -> Task:
-        """Create a task, let the repository give it an id, and return it."""
-        return self.repository.add(Task(title=title, priority=priority, due_date=due_date))
+        """Create a task, let the repository give it an id, and return it.
+
+        The title and the priority are checked here rather than in the menu, so
+        that the API enforces the same rules the menu does.
+        """
+        return self.repository.add(
+            Task(title=clean_title(title), priority=parse_priority(priority), due_date=due_date)
+        )
 
     def get(self, task_id: int) -> Task:
         """Return the task with this id, or raise TaskNotFoundError."""
@@ -64,8 +75,32 @@ class TaskService:
 
     def update_title(self, task_id: int, title: str) -> Task:
         """Replace a task's title and return the task."""
+        return self.change(task_id, {"title": title})
+
+    def change(self, task_id: int, changes: dict[str, Any]) -> Task:
+        """Apply the changes that were given to one task and return it.
+
+        A field that is not in the mapping keeps the value it has. Only a due
+        date may be sent as None, which clears it. A null title, priority or
+        done flag is refused, because none of them means anything.
+        """
+        unknown = set(changes) - set(CHANGEABLE_FIELDS)
+        if unknown:
+            raise InvalidTaskError(f"{', '.join(sorted(unknown))} is not a field of a task.")
+        for field, value in changes.items():
+            if value is None and field != "due_date":
+                raise InvalidTaskError(
+                    f"{field} cannot be null. Leave it out to keep it unchanged."
+                )
         task = self.repository.get(task_id)
-        task.title = title
+        if "title" in changes:
+            task.title = clean_title(changes["title"])
+        if "priority" in changes:
+            task.priority = parse_priority(changes["priority"])
+        if "due_date" in changes:
+            task.due_date = changes["due_date"]
+        if "done" in changes:
+            task.done = bool(changes["done"])
         return self.repository.update(task)
 
     def toggle_done(self, task_id: int) -> Task:
