@@ -1,8 +1,17 @@
 """Tests for the input validators."""
 
+from datetime import date
+
 import pytest
 
-from duewright.validators import clean_title, parse_task_id, parse_yes_no
+from duewright.validators import (
+    clean_title,
+    parse_due_date,
+    parse_priority,
+    parse_state,
+    parse_task_id,
+    parse_yes_no,
+)
 
 
 @pytest.mark.parametrize(
@@ -52,3 +61,50 @@ def test_parse_yes_no_accepts_no(text):
 def test_parse_yes_no_rejects(text):
     with pytest.raises(ValueError):
         parse_yes_no(text)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("low", "low"), ("HIGH", "high"), (" Medium ", "medium")],
+)
+def test_parse_priority_accepts(text, expected):
+    assert parse_priority(text) == expected
+
+
+@pytest.mark.parametrize("text", ["", "urgent", "1", "med", "high priority"])
+def test_parse_priority_rejects(text):
+    with pytest.raises(ValueError):
+        parse_priority(text)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("2026-10-05", date(2026, 10, 5)), (" 2026-10-05 ", date(2026, 10, 5))],
+)
+def test_parse_due_date_accepts(text, expected):
+    assert parse_due_date(text) == expected
+
+
+@pytest.mark.parametrize("text", ["", "   "])
+def test_parse_due_date_treats_a_blank_answer_as_none(text):
+    assert parse_due_date(text) is None
+
+
+@pytest.mark.parametrize("text", ["05/10/2026", "2026-13-45", "tomorrow", "2026-10"])
+def test_parse_due_date_rejects(text):
+    with pytest.raises(ValueError):
+        parse_due_date(text)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("all", "all"), ("Pending", "pending"), (" done ", "done")],
+)
+def test_parse_state_accepts(text, expected):
+    assert parse_state(text) == expected
+
+
+@pytest.mark.parametrize("text", ["", "open", "finished", "everything"])
+def test_parse_state_rejects(text):
+    with pytest.raises(ValueError):
+        parse_state(text)

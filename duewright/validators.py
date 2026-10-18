@@ -5,10 +5,17 @@ the menu can show. Nothing here reads input or prints, which is what makes
 these rules easy to test.
 """
 
+from datetime import date
+from typing import Optional
+
+from duewright.models import PRIORITIES
+
 MAX_TITLE_LENGTH = 100
 
 YES_ANSWERS = {"y", "yes"}
 NO_ANSWERS = {"n", "no"}
+
+STATES = ("all", "pending", "done")
 
 
 def clean_title(text: str) -> str:
@@ -40,3 +47,30 @@ def parse_yes_no(text: str) -> bool:
     if answer in NO_ANSWERS:
         return False
     raise ValueError("Please answer y or n.")
+
+
+def parse_priority(text: str) -> str:
+    """Return low, medium or high, or raise ValueError for anything else."""
+    priority = text.strip().lower()
+    if priority not in PRIORITIES:
+        raise ValueError("Priority is low, medium or high.")
+    return priority
+
+
+def parse_due_date(text: str) -> Optional[date]:
+    """Return a due date, None for a blank answer, or raise ValueError."""
+    answer = text.strip()
+    if not answer:
+        return None
+    try:
+        return date.fromisoformat(answer)
+    except ValueError:
+        raise ValueError("Use YYYY-MM-DD, for example 2026-10-05.") from None
+
+
+def parse_state(text: str) -> str:
+    """Return all, pending or done, or raise ValueError for anything else."""
+    state = text.strip().lower()
+    if state not in STATES:
+        raise ValueError("Show all, pending or done.")
+    return state

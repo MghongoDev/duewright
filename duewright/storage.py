@@ -11,7 +11,7 @@ from typing import Any
 
 from duewright.models import Task
 
-FILE_VERSION = 1
+FILE_VERSION = 2
 
 
 class CorruptStorageError(Exception):
@@ -20,6 +20,10 @@ class CorruptStorageError(Exception):
     def __init__(self, reason: str, spoiled_path: Path) -> None:
         super().__init__(reason)
         self.spoiled_path = spoiled_path
+
+
+class StorageVersionError(Exception):
+    """The task file was written by a newer version of Duewright than this one."""
 
 
 def save_tasks(path: Path, tasks: list[Task], next_id: int) -> None:
@@ -45,6 +49,8 @@ def load_tasks(path: Path) -> tuple[list[Task], int]:
 
     A missing file gives an empty list. A file that cannot be parsed is moved
     aside and reported, because it may hold the only copy of the user's tasks.
+    A file written by a newer version is refused, so that saving over it
+    cannot throw away fields this program does not know about.
     """
     if not path.exists():
         return [], 1
@@ -56,6 +62,7 @@ def load_tasks(path: Path) -> tuple[list[Task], int]:
             isinstance(item, dict) for item in raw_tasks
         ):
             raise ValueError("the file does not hold a list of tasks")
+        tasks = [Task.from_dict(item) for item in raw_tasks]
     except json.JSONDecodeError as error:
         raise CorruptStorageError(
             f"it is not valid JSON ({error})", _set_aside(path)
@@ -65,7 +72,13 @@ def load_tasks(path: Path) -> tuple[list[Task], int]:
             f"it is not shaped like a task file ({error})", _set_aside(path)
         ) from error
 
-    tasks = [Task.from_dict(item) for item in raw_tasks]
+    version = data.get("version")
+    if isinstance(version, int) and version > FILE_VERSION:
+        raise StorageVersionError(
+            f"{path.name} is version {version}, and this program understands "
+            f"version {FILE_VERSION}. Update Duewright before opening it."
+        )
+
     next_id = data.get("next_id")
     if not isinstance(next_id, int) or next_id < 1:
         # A hand-written file may carry no counter. The highest id it holds is

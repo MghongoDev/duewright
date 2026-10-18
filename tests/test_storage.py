@@ -1,12 +1,18 @@
 """Tests for reading and writing the task file."""
 
 import json
+from datetime import date
 
 import pytest
 
 from duewright.manager import TaskManager
 from duewright.models import Task
-from duewright.storage import CorruptStorageError, load_tasks, save_tasks
+from duewright.storage import (
+    CorruptStorageError,
+    StorageVersionError,
+    load_tasks,
+    save_tasks,
+)
 
 
 def test_round_trip(tmp_path):
@@ -40,6 +46,22 @@ def test_a_file_of_the_wrong_shape_counts_as_corrupt(tmp_path):
         load_tasks(path)
 
 
+def test_a_bad_due_date_counts_as_corrupt(tmp_path):
+    path = tmp_path / "tasks.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "next_id": 2,
+                "tasks": [{"id": 1, "title": "Buy milk", "due_date": "soon"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(CorruptStorageError):
+        load_tasks(path)
+
+
 def test_saving_leaves_no_temp_file_behind(tmp_path):
     path = tmp_path / "tasks.json"
     save_tasks(path, [], next_id=1)
@@ -68,6 +90,73 @@ def test_done_and_created_at_survive_a_round_trip(tmp_path):
     loaded, _ = load_tasks(path)
     assert loaded[0].done is True
     assert loaded[0].created_at == "2026-10-18T17:52:04+00:00"
+
+
+def test_priority_and_due_date_survive_a_round_trip(tmp_path):
+    path = tmp_path / "tasks.json"
+    task = Task(title="Pay the rent", id=1, priority="high", due_date=date(2026, 10, 5))
+    save_tasks(path, [task], next_id=2)
+    loaded, _ = load_tasks(path)
+    assert loaded[0].priority == "high"
+    assert loaded[0].due_date == date(2026, 10, 5)
+
+
+def test_saving_writes_the_current_version(tmp_path):
+    path = tmp_path / "tasks.json"
+    save_tasks(path, [], next_id=1)
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 2
+
+
+def test_a_version_1_file_still_loads(tmp_path):
+    path = tmp_path / "tasks.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "next_id": 2,
+                "tasks": [
+                    {
+                        "id": 1,
+                        "title": "Buy milk",
+                        "done": False,
+                        "created_at": "2026-10-18T17:52:04+00:00",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    tasks, next_id = load_tasks(path)
+    assert tasks[0].title == "Buy milk"
+    assert tasks[0].priority == "medium"
+    assert tasks[0].due_date is None
+    assert next_id == 2
+
+
+def test_an_unknown_priority_falls_back_to_medium(tmp_path):
+    path = tmp_path / "tasks.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "next_id": 2,
+                "tasks": [{"id": 1, "title": "Buy milk", "priority": "urgent"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    tasks, _ = load_tasks(path)
+    assert tasks[0].priority == "medium"
+
+
+def test_a_newer_file_is_refused_rather_than_overwritten(tmp_path):
+    path = tmp_path / "tasks.json"
+    path.write_text(
+        json.dumps({"version": 99, "next_id": 2, "tasks": []}), encoding="utf-8"
+    )
+    with pytest.raises(StorageVersionError):
+        load_tasks(path)
+    assert path.exists()
 
 
 def test_a_file_without_a_counter_falls_back_to_the_highest_id(tmp_path):

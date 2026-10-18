@@ -4,12 +4,26 @@ This is the only module that reads input or prints, which is what keeps the
 rest of the package testable and reusable.
 """
 
+from datetime import date
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from duewright.manager import TaskManager, TaskNotFoundError
-from duewright.storage import CorruptStorageError, load_tasks, save_tasks
-from duewright.validators import clean_title, parse_task_id, parse_yes_no
+from duewright.manager import TaskManager, TaskNotFoundError, is_due_today, is_overdue
+from duewright.models import Task
+from duewright.storage import (
+    CorruptStorageError,
+    StorageVersionError,
+    load_tasks,
+    save_tasks,
+)
+from duewright.validators import (
+    clean_title,
+    parse_due_date,
+    parse_priority,
+    parse_state,
+    parse_task_id,
+    parse_yes_no,
+)
 
 MENU = """
 1) Add a task
@@ -17,6 +31,8 @@ MENU = """
 3) Edit a task title
 4) Mark a task done / undone
 5) Delete a task
+6) Filter the list
+7) Search titles
 0) Quit
 """
 
@@ -24,33 +40,54 @@ MENU = """
 # launch from, so there is one tasks.json instead of one per working folder.
 TASKS_FILE = Path(__file__).resolve().parent.parent / "tasks.json"
 
+TITLE_COLUMN = 24
+
 
 def show_menu() -> None:
     """Print the menu."""
     print(MENU)
 
 
-def print_tasks(manager: TaskManager) -> None:
-    """Print every task, or a message when the list is empty."""
-    tasks = manager.all()
-    if not tasks:
+def format_task(task: Task, today: date) -> str:
+    """Return one line of the list for a task."""
+    mark = "x" if task.done else " "
+    line = f"[{mark}]  {task.id:>3}  {task.title:<{TITLE_COLUMN}}  {task.priority:<6}"
+    if task.due_date is not None:
+        line += f"  due {task.due_date.isoformat()}"
+    if is_overdue(task, today):
+        line += "  OVERDUE"
+    elif is_due_today(task, today):
+        line += "  DUE TODAY"
+    return line.rstrip()
+
+
+def print_tasks(manager: TaskManager, tasks: Optional[list[Task]] = None) -> None:
+    """Print the given tasks, or the whole list, with a summary underneath."""
+    today = date.today()
+    if not manager.all():
         print("No tasks yet.")
         return
-    for task in tasks:
-        mark = "x" if task.done else " "
-        print(f"[{mark}]  {task.id}  {task.title}")
+    shown = manager.list_tasks() if tasks is None else tasks
+    if not shown:
+        print("No tasks match.")
+    else:
+        for task in shown:
+            print(format_task(task, today))
+    print(manager.summary(today))
 
 
-def prompt(question: str, parser: Callable[[str], Any]) -> Any:
-    """Ask until the parser accepts an answer, and let a blank answer cancel.
+def prompt(question: str, parser: Callable[[str], Any], blank: Any = None) -> Any:
+    """Ask until the parser accepts an answer.
 
-    The parser is one of the validators, so the rule for what counts as a good
-    answer lives there and this loop only has to keep asking.
+    A blank answer cancels the operation and returns None, unless blank is
+    given, in which case a blank answer returns that value instead. The
+    priority and the due date use that, because a blank answer there means
+    medium and none.
     """
     while True:
         answer = input(question)
         if not answer.strip():
-            return None
+            return blank
         try:
             return parser(answer)
         except ValueError as error:
@@ -79,12 +116,21 @@ def commit(manager: TaskManager) -> None:
 
 
 def handle_add(manager: TaskManager) -> None:
-    """Ask for a title, add the task, then show the list."""
+    """Ask for a title, a priority and a due date, then show the list."""
     title = prompt("Title: ", clean_title)
     if title is None:
         print("Cancelled.")
         return
-    manager.add(title)
+    priority = prompt(
+        "Priority (low/medium/high, blank for medium): ", parse_priority, blank="medium"
+    )
+    if priority is None:
+        print("Cancelled.")
+        return
+    due_date = prompt(
+        "Due date (YYYY-MM-DD, blank for none): ", parse_due_date, blank=None
+    )
+    manager.add(title, priority=priority, due_date=due_date)
     commit(manager)
     print_tasks(manager)
 
@@ -143,6 +189,25 @@ def handle_delete(manager: TaskManager) -> None:
     print_tasks(manager)
 
 
+def handle_filter(manager: TaskManager) -> None:
+    """Ask which tasks to show, then show that view."""
+    state = prompt("Show (all/pending/done): ", parse_state, blank="all")
+    if state is None:
+        print("Cancelled.")
+        return
+    done = {"all": None, "pending": False, "done": True}[state]
+    print_tasks(manager, manager.list_tasks(done=done))
+
+
+def handle_search(manager: TaskManager) -> None:
+    """Ask for a keyword, then show the tasks whose title contains it."""
+    query = input("Search titles: ").strip()
+    if not query:
+        print("Cancelled.")
+        return
+    print_tasks(manager, manager.list_tasks(query=query))
+
+
 def load_manager() -> TaskManager:
     """Build a manager from the task file, reporting a file it cannot read."""
     try:
@@ -160,7 +225,11 @@ def load_manager() -> TaskManager:
 
 def main() -> None:
     """Load the tasks, then run the menu loop until the user quits."""
-    manager = load_manager()
+    try:
+        manager = load_manager()
+    except StorageVersionError as error:
+        print(f"Cannot start: {error}")
+        return
     print("Duewright")
     try:
         while True:
@@ -180,6 +249,10 @@ def main() -> None:
                 handle_toggle(manager)
             elif choice == "5":
                 handle_delete(manager)
+            elif choice == "6":
+                handle_filter(manager)
+            elif choice == "7":
+                handle_search(manager)
             else:
                 print(f"{choice!r} is not an option.")
     except (KeyboardInterrupt, EOFError):
