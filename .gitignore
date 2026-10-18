@@ -9,3 +9,6 @@ tasks.json.tmp
 *.corrupt-*
 .env
 duewright-implementation-guide.md
+.coverage
+.coverage.*
+htmlcov/
