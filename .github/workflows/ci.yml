@@ -23,3 +23,8 @@ jobs:
       - run: ruff format --check .
       - run: mypy duewright
       - run: pytest --cov=duewright --cov-report=term-missing
+      - name: Measure what several processes writing at once costs
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          python scripts/concurrency_demo.py --backend sqlite
+          python scripts/concurrency_demo.py --backend json
