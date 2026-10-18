@@ -5,8 +5,10 @@ from datetime import date
 import pytest
 
 from duewright.validators import (
+    CLEAR,
     clean_title,
     parse_due_date,
+    parse_due_date_edit,
     parse_priority,
     parse_state,
     parse_task_id,
@@ -108,3 +110,23 @@ def test_parse_state_accepts(text, expected):
 def test_parse_state_rejects(text):
     with pytest.raises(ValueError):
         parse_state(text)
+
+
+def test_an_edit_asks_for_a_date_the_same_way_adding_does():
+    assert parse_due_date_edit("2026-11-01") == date(2026, 11, 1)
+
+
+def test_none_clears_a_due_date_on_an_edit():
+    assert parse_due_date_edit("none") is CLEAR
+    assert parse_due_date_edit("NONE") is CLEAR
+
+
+def test_an_edit_still_refuses_a_date_it_cannot_read():
+    with pytest.raises(ValueError):
+        parse_due_date_edit("the fifth")
+
+
+def test_an_edit_does_not_read_a_blank_as_clearing():
+    """A blank answer means keep, so the function refuses it rather than clearing."""
+    with pytest.raises(ValueError):
+        parse_due_date_edit("   ")

@@ -17,7 +17,7 @@ Duewright
 
 1) Add a task
 2) List tasks
-3) Edit a task title
+3) Edit a task
 4) Mark a task done / undone
 5) Delete a task
 6) Filter the list
@@ -91,7 +91,7 @@ docker run --name duewright -p 127.0.0.1:8000:8000 \
 ```
 1) Add a task
 2) List tasks
-3) Edit a task title
+3) Edit a task
 4) Mark a task done / undone
 5) Delete a task
 6) Filter the list
@@ -111,7 +111,7 @@ The list looks like this:
 
 Pending tasks come first, then tasks that carry a due date, earliest due date first, then higher priority before lower, then lower id. A task is overdue when it is pending and its due date has passed. A task due today gets its own marker, because it is not late yet.
 
-Editing reaches the title only. Fixing a wrong due date means deleting the task and adding it again, which the API does not have to do (see below).
+Editing offers the title, the priority and the due date in turn. A field left blank keeps what the task already has, and answering none to the due date clears it. That is the same rule the API applies to a field left out of a request.
 
 ## Use the API
 
@@ -333,7 +333,6 @@ Continuous integration runs the suite on Linux and Windows, on Python 3.12 and 3
 - One user, one static key. Anyone holding the key has the whole list. This is not a login system.
 - No rate limiting, and no HTTPS. Put a reverse proxy in front before exposing it beyond your own machine, or the key travels in clear text.
 - Ordering, paging and search happen in Python rather than in the store. That is right for a few hundred tasks and wrong for a hundred thousand.
-- The menu cannot edit a priority or a due date. The API can.
 
 ## Layout
 
@@ -378,7 +377,6 @@ duewright/
 
 ## What I would improve
 
-- Editing a priority or a due date from the menu, so the two interfaces can do the same things.
 - Sorting and paging in the store instead of in Python.
 - A fourth place to keep the tasks, such as PostgreSQL. The contract suite and the interface are in place, so a new backend is one class and no change to the rules.
 - A warning when a task is about to become due.

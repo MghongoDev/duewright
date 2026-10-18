@@ -7,7 +7,7 @@ kind of error while the API can map that one onto a 422.
 """
 
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
 from duewright.errors import InvalidTaskError
 from duewright.models import PRIORITIES
@@ -18,6 +18,12 @@ YES_ANSWERS = {"y", "yes"}
 NO_ANSWERS = {"n", "no"}
 
 STATES = ("all", "pending", "done")
+
+CLEAR_ANSWERS = {"none", "clear"}
+
+# What an answer of none means while a due date is being changed:
+# clear it.
+CLEAR = object()
 
 
 def clean_title(text: str) -> str:
@@ -68,6 +74,21 @@ def parse_due_date(text: str) -> Optional[date]:
         return date.fromisoformat(answer)
     except ValueError:
         raise ValueError("Use YYYY-MM-DD, for example 2026-10-05.") from None
+
+
+def parse_due_date_edit(text: str) -> Any:
+    """Return the date an edit asks for, CLEAR to remove it, or raise ValueError.
+
+    A blank answer never reaches this function. The menu reads a blank
+    answer as keeping what is there, which is the rule the API applies to a
+    field left out of a request, so only a word can ask for the date to go.
+    """
+    answer = text.strip()
+    if not answer:
+        raise ValueError("A blank answer keeps the due date. Answer none to clear it.")
+    if answer.lower() in CLEAR_ANSWERS:
+        return CLEAR
+    return parse_due_date(answer)
 
 
 def parse_state(text: str) -> str:
