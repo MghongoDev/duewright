@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from duewright.errors import StorageVersionError
+from duewright.errors import CorruptStorageError, StorageVersionError
 from duewright.models import Task
-from duewright.repositories.json_repo import CorruptStorageError, JsonTaskRepository
+from duewright.repositories.json_repo import JsonTaskRepository
 
 
 def test_a_damaged_file_is_kept_and_reported(tmp_path):
@@ -15,6 +15,7 @@ def test_a_damaged_file_is_kept_and_reported(tmp_path):
     with pytest.raises(CorruptStorageError) as raised:
         JsonTaskRepository(path).list_tasks()
     assert not path.exists()
+    assert raised.value.spoiled_path is not None
     assert raised.value.spoiled_path.exists()
     assert "corrupt" in raised.value.spoiled_path.name
 

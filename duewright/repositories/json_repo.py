@@ -9,18 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from duewright.errors import StorageVersionError, TaskNotFoundError
+from duewright.errors import CorruptStorageError, StorageVersionError, TaskNotFoundError
 from duewright.models import Task
 
 FILE_VERSION = 2
-
-
-class CorruptStorageError(Exception):
-    """The task file could not be read, and has been kept under another name."""
-
-    def __init__(self, reason: str, spoiled_path: Path) -> None:
-        super().__init__(reason)
-        self.spoiled_path = spoiled_path
 
 
 class JsonTaskRepository:
