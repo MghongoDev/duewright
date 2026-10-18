@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from duewright.errors import CorruptStorageError, StorageVersionError, TaskNotFoundError
 from duewright.models import Task
+from duewright.repositories.base import matches, page_of, sort_key
 
 FILE_VERSION = 2
 
@@ -26,15 +27,17 @@ class JsonTaskRepository:
     def __init__(self, path: Path) -> None:
         self.path = path
 
-    def list_tasks(self, done: Optional[bool] = None, query: Optional[str] = None) -> list[Task]:
-        """Return the tasks that match, in the order they were added."""
+    def list_tasks(
+        self,
+        done: Optional[bool] = None,
+        query: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> tuple[list[Task], int]:
+        """Return one page of the tasks that match, in display order, and the total."""
         tasks, _ = self._read()
-        if done is not None:
-            tasks = [task for task in tasks if task.done is done]
-        if query:
-            needle = query.casefold()
-            tasks = [task for task in tasks if needle in task.title.casefold()]
-        return tasks
+        matched = [task for task in tasks if matches(task, done, query)]
+        return page_of(sorted(matched, key=sort_key), limit, offset)
 
     def get(self, task_id: int) -> Task:
         """Return one task, or raise TaskNotFoundError."""

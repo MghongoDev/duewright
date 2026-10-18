@@ -96,16 +96,38 @@ def test_the_priority_defaults_to_medium(service):
     assert service.get(1).priority == "medium"
 
 
-def test_the_service_sorts_what_the_store_hands_back(service):
-    """The store keeps the order tasks were added; the display does not."""
-    service.add("Undated", priority="high")
-    service.add("Dated", priority="low", due_date=date(2026, 12, 1))
-    assert [task.title for task in service.repository.list_tasks()] == [
-        "Undated",
-        "Dated",
-    ]
-    page, _ = service.list_tasks()
-    assert [task.title for task in page] == ["Dated", "Undated"]
+def test_the_service_asks_the_store_for_the_page_it_needs():
+    """The ordering and the paging are the store's job, so the service passes them on."""
+
+    class RecordingRepository(InMemoryTaskRepository):
+        """A store that remembers what it was asked for."""
+
+        asked: dict = {}
+
+        def list_tasks(self, done=None, query=None, limit=None, offset=0):
+            self.asked = {"done": done, "query": query, "limit": limit, "offset": offset}
+            return super().list_tasks(done=done, query=query, limit=limit, offset=offset)
+
+    repository = RecordingRepository()
+    service = TaskService(repository)
+    service.list_tasks(done=False, query="milk", limit=10, offset=20)
+    assert repository.asked == {"done": False, "query": "milk", "limit": 10, "offset": 20}
+
+
+def test_the_service_hands_back_the_order_the_store_gave_it():
+    """The service does not reorder, so the order is the store's business alone."""
+
+    class BackwardsRepository(InMemoryTaskRepository):
+        """A store that hands its page back in the wrong order on purpose."""
+
+        def list_tasks(self, done=None, query=None, limit=None, offset=0):
+            page, total = super().list_tasks(done=done, query=query, limit=limit, offset=offset)
+            return list(reversed(page)), total
+
+    service = TaskService(BackwardsRepository())
+    service.add("first")
+    service.add("second")
+    assert [task.title for task in service.list_tasks()[0]] == ["second", "first"]
 
 
 def test_the_list_orders_pending_first_then_dated_then_priority():

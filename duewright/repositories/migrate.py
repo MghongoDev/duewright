@@ -31,12 +31,12 @@ def migrate_json(source: Path, database: Path, dry_run: bool = False) -> Migrati
     is not what this is for. A dry run reads the file and stops, so nothing is
     written at all.
     """
-    tasks = JsonTaskRepository(source).list_tasks()
+    tasks, _ = JsonTaskRepository(source).list_tasks()
     _refuse_a_target_that_is_not_empty(database)
     if dry_run:
         return MigrationReport(source_count=len(tasks), written=False)
     _insert_in_one_transaction(database, tasks)
-    stored = SqliteTaskRepository(database).list_tasks()
+    stored, _ = SqliteTaskRepository(database).list_tasks()
     if not _same_tasks(tasks, stored):
         raise MigrationError(
             "the database does not hold the same tasks as the file, so the move "
@@ -49,7 +49,7 @@ def _refuse_a_target_that_is_not_empty(database: Path) -> None:
     """Raise when the database already holds tasks."""
     if not database.exists():
         return
-    existing = SqliteTaskRepository(database).list_tasks()
+    existing, _ = SqliteTaskRepository(database).list_tasks()
     if existing:
         raise MigrationError(
             f"the database already holds {len(existing)} tasks, so nothing was moved"

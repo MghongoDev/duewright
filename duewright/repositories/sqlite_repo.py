@@ -15,6 +15,7 @@ from typing import Optional
 
 from duewright.errors import CorruptStorageError, StorageVersionError, TaskNotFoundError
 from duewright.models import Task
+from duewright.repositories.base import PRIORITY_ORDER
 
 SCHEMA_V1 = """
 CREATE TABLE tasks (
@@ -30,6 +31,15 @@ CREATE TABLE tasks (
 MIGRATIONS = {1: SCHEMA_V1}
 
 LOCK_TIMEOUT_SECONDS = 5
+
+# The order the Python key produces, written out for the database. The two have
+# to agree, and the contract suite is what checks that they do. The ELSE is the
+# same fallback the Python key uses for a priority it does not know.
+ORDER_BY = (
+    "ORDER BY done, due_date IS NULL, due_date, CASE priority "
+    + " ".join(f"WHEN '{name}' THEN {rank}" for name, rank in PRIORITY_ORDER.items())
+    + f" ELSE {PRIORITY_ORDER['medium']} END, id"
+)
 
 
 def migrate(conn: sqlite3.Connection) -> None:
@@ -52,6 +62,32 @@ def migrate(conn: sqlite3.Connection) -> None:
         conn.execute(f"PRAGMA user_version = {version}")
 
 
+def fold(text: str) -> str:
+    """Fold a string for the search, the way the stores that filter in Python do."""
+    return text.casefold()
+
+
+def like_pattern(query: str) -> str:
+    """Return a LIKE pattern that matches the query as text rather than as a pattern.
+
+    LIKE reads a percent sign and an underscore as wildcards, so a query
+    holding either has to have them escaped, or searching for a percent sign
+    would match every Task.
+    """
+    escaped = query.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def register_functions(conn: sqlite3.Connection) -> None:
+    """Teach the connection the case folding the other stores use.
+
+    SQLite's own LIKE folds case for ASCII only, so searching for CAFÉ would
+    miss café. Registering the folding the other stores use keeps the search
+    behaving the same way here as it does there.
+    """
+    conn.create_function("fold", 1, fold, deterministic=True)
+
+
 class SqliteTaskRepository:
     """Keeps the tasks in a database, opening one short-lived connection per operation.
 
@@ -63,23 +99,34 @@ class SqliteTaskRepository:
     def __init__(self, path: Path) -> None:
         self.path = path
 
-    def list_tasks(self, done: Optional[bool] = None, query: Optional[str] = None) -> list[Task]:
-        """Return the tasks that match, in the order they were added."""
-        statement = "SELECT * FROM tasks"
-        parameters: tuple[object, ...] = ()
-        if done is not None:
-            statement += " WHERE done = ?"
-            parameters = (int(done),)
-        statement += " ORDER BY id"
+    def list_tasks(
+        self,
+        done: Optional[bool] = None,
+        query: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> tuple[list[Task], int]:
+        """Return one page of the tasks that match, in display order, and the total.
+
+        The ordering and the paging happen in the query rather than in Python,
+        so a store holding a hundred thousand tasks answers a page without
+        sending the rest across the boundary.
+        """
+        where, parameters = self._where(done, query)
+        statement = f"SELECT * FROM tasks{where} {ORDER_BY}"
+        page_parameters = list(parameters)
+        if limit is not None:
+            statement += " LIMIT ? OFFSET ?"
+            page_parameters += [limit, offset]
+        elif offset:
+            # A limit of -1 is how SQLite is asked for everything from an
+            # offset onwards.
+            statement += " LIMIT -1 OFFSET ?"
+            page_parameters.append(offset)
         with self._connection() as conn:
-            rows = conn.execute(statement, parameters).fetchall()
-        tasks = [self._to_task(row) for row in rows]
-        if query:
-            # SQLite compares text without case for ASCII only, so the search
-            # happens here, where every backend behaves the same way.
-            needle = query.casefold()
-            tasks = [task for task in tasks if needle in task.title.casefold()]
-        return tasks
+            total = conn.execute(f"SELECT COUNT(*) FROM tasks{where}", parameters).fetchone()[0]
+            rows = conn.execute(statement, page_parameters).fetchall()
+        return [self._to_task(row) for row in rows], total
 
     def get(self, task_id: int) -> Task:
         """Return one task, or raise TaskNotFoundError."""
@@ -130,6 +177,21 @@ class SqliteTaskRepository:
             if cursor.rowcount == 0:
                 raise TaskNotFoundError(f"no task with id {task_id}")
 
+    @staticmethod
+    def _where(done: Optional[bool], query: Optional[str]) -> tuple[str, list[object]]:
+        """The WHERE clause for a filter and a search, and its parameters."""
+        clauses: list[str] = []
+        parameters: list[object] = []
+        if done is not None:
+            clauses.append("done = ?")
+            parameters.append(int(done))
+        if query:
+            clauses.append("fold(title) LIKE ? ESCAPE '\\'")
+            parameters.append(like_pattern(query))
+        if not clauses:
+            return "", parameters
+        return f" WHERE {' AND '.join(clauses)}", parameters
+
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
         """Open the database, bring the schema up to date, and close it again.
@@ -142,6 +204,7 @@ class SqliteTaskRepository:
         try:
             try:
                 migrate(conn)
+                register_functions(conn)
                 yield conn
                 conn.commit()
             except sqlite3.DatabaseError as error:

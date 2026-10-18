@@ -77,7 +77,7 @@ def test_the_reported_count_matches_the_store_on_disk(tmp_path):
     result = run_demo(
         "--backend", "sqlite", "--workers", "2", "--tasks", "10", "--data-dir", str(tmp_path)
     )
-    stored = SqliteTaskRepository(tmp_path / "tasks.db").list_tasks()
+    stored, _ = SqliteTaskRepository(tmp_path / "tasks.db").list_tasks()
     assert reported(result, "tasks in the store afterwards") == len(stored)
     assert len({task.title for task in stored}) == 20
 
@@ -87,7 +87,7 @@ def test_the_file_run_reports_the_file_it_used(tmp_path):
     result = run_demo(
         "--backend", "json", "--workers", "2", "--tasks", "10", "--data-dir", str(tmp_path)
     )
-    stored = JsonTaskRepository(tmp_path / "tasks.json").list_tasks()
+    stored, _ = JsonTaskRepository(tmp_path / "tasks.json").list_tasks()
     assert reported(result, "tasks in the store afterwards") == len(stored)
     assert not (tmp_path / "tasks.db").exists()
 

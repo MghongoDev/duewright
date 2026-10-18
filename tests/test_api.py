@@ -18,7 +18,7 @@ HEADER = "X-API-Key"
 class UntouchableRepository:
     """A store that fails if anything reaches it, which proves a route does not."""
 
-    def list_tasks(self, done=None, query=None):
+    def list_tasks(self, done=None, query=None, limit=None, offset=0):
         raise AssertionError("the store was read")
 
     def get(self, task_id):
@@ -37,7 +37,7 @@ class UntouchableRepository:
 class BrokenRepository:
     """A store that fails the way a bug would, to see what the client is told."""
 
-    def list_tasks(self, done=None, query=None):
+    def list_tasks(self, done=None, query=None, limit=None, offset=0):
         raise RuntimeError("something went wrong inside")
 
     def get(self, task_id):
@@ -366,5 +366,5 @@ def test_the_real_store_works_through_the_api(tmp_path, monkeypatch):
     assert created.status_code == 201
     listed = client.get("/api/v1/tasks").json()
     assert [task["title"] for task in listed["items"]] == ["Buy milk"]
-    stored = SqliteTaskRepository(tmp_path / "tasks.db").list_tasks()
+    stored, _ = SqliteTaskRepository(tmp_path / "tasks.db").list_tasks()
     assert [task.title for task in stored] == ["Buy milk"]

@@ -246,11 +246,12 @@ The file is read with the same loader the program uses, so both versions the pro
                         |                              |
                         +--------------+---------------+
                                        |
-                                   TaskService            the rules: order, overdue,
+                                   TaskService            the rules: overdue,
                                        |                  filter, search, summary
                                        |
                               TaskRepository              the interface every store
-                                       |                  has to satisfy
+                                       |                  has to satisfy, and the order
+                                       |                  and the search they share
                 +----------------------+----------------------+
                 |                      |                      |
         JsonTaskRepository   SqliteTaskRepository   InMemoryTaskRepository
@@ -268,7 +269,7 @@ Four rules keep those apart, and they are the main lesson of the project:
 
 ### A repository interface, with one contract suite for every implementation
 
-The rules do not know where the tasks are kept. They ask a repository, and three implementations satisfy the same interface: a JSON file, SQLite, and an in-memory store for tests. One contract suite runs the same behaviours against all three, so adding the database needed one word in a fixture and no change to the rules at all.
+The rules do not know where the tasks are kept. They ask a repository, and three implementations satisfy the same interface: a JSON file, SQLite, and an in-memory store for tests. One contract suite runs the same behaviours against all three, so adding the database needed one word in a fixture and no change to the rules at all. The same suite now pins the display order and the paging too, so a store that orders and pages in its own query has to agree with the others about both.
 
 ### SQLite, because two copies of the program can run at once
 
@@ -297,6 +298,22 @@ Not everything arrived: this store lost work when two processes wrote at once.
 
 The database stored all two hundred tasks, on Windows and on Linux. The file lost almost everything: on Windows one task of the two hundred survived and every process died with a permission error, and on Linux none survived, with two writers corrupting the file until the program moved it aside as unreadable. The exact numbers move from run to run, because this is a race. The database result has not moved.
 
+### The store does the ordering and the paging
+
+A list used to fetch every task and order and slice them in Python. That is right for a few hundred tasks and wrong for a hundred thousand, so a repository now answers a page: it takes a limit and an offset, and it returns the page and how many tasks matched in total. The database orders and pages in its own query, and the stores that hold everything in memory do the same work in Python, because the contract suite checks the behaviour rather than the mechanism.
+
+The difference is measured rather than asserted. `scripts/paging_demo.py` builds a hundred thousand tasks in about half a second, then times fetching every one of them and ordering and slicing them in Python against asking the store for a page of twenty:
+
+```
+$ python scripts/paging_demo.py --tasks 100000 --page 20
+page size: 20
+every Task, then ordered and sliced in Python:  363.3 ms, 100000 rows moved, 20 on the page
+one page asked of the store:                    28.3 ms,     20 rows moved, 20 on the page
+the page moves 5000 times fewer rows and takes 13 times less time
+```
+
+The row count is the number to trust, because the timing depends on the machine and the count does not. The page moves five thousand times fewer rows, and that is the point: a store holding a hundred thousand tasks no longer sends them across the boundary to answer a request for twenty.
+
 ### Writes that cannot leave a half-written file
 
 The JSON store writes to a temporary file and renames it into place in one step, so a crash cannot leave a truncated file behind. It never overwrites a file it could not parse, because that file may be the only copy of the tasks: it moves it aside under a `.corrupt-` name and reports where it went. The database gets the same guarantee from its own transactions.
@@ -323,7 +340,7 @@ The key is compared in constant time, so it cannot be guessed a character at a t
 
 ### How I test
 
-229 tests. Most run in process, and the ones that matter most run the real thing: the menu is driven as a process with the answers piped in, the server is started and called over HTTP, and the image is built and run. Coverage is measured across subprocesses too, because the menu's tests would otherwise look like untested code, and it stands at 87%.
+268 tests. Most run in process, and the ones that matter most run the real thing: the menu is driven as a process with the answers piped in, the server is started and called over HTTP, and the image is built and run. Coverage is measured across subprocesses too, because the menu's tests would otherwise look like untested code, and it stands at 91%.
 
 Every test that carries a criterion was proved by breaking its assertion and watching the run go red first. That habit caught a walk over the API routes that passed on nothing when FastAPI changed how it keeps an included router, and a concurrency report that said "nothing was lost" for a run in which three of four workers had died.
 
@@ -333,7 +350,6 @@ Continuous integration runs the suite on Linux and Windows, on Python 3.12 and 3
 
 - One user, one static key. Anyone holding the key has the whole list. This is not a login system.
 - No rate limiting, and no HTTPS. Put a reverse proxy in front before exposing it beyond your own machine, or the key travels in clear text.
-- Ordering, paging and search happen in Python rather than in the store. That is right for a few hundred tasks and wrong for a hundred thousand.
 
 ## Layout
 
@@ -351,16 +367,17 @@ duewright/
 │   ├── errors.py         # the errors the package raises
 │   ├── models.py         # Task
 │   ├── repositories/
-│   │   ├── base.py       # the interface a repository has to satisfy
+│   │   ├── base.py       # the interface, and the order and the search every store shares
 │   │   ├── json_repo.py  # the only module that knows about JSON
 │   │   ├── memory.py     # for tests
 │   │   ├── migrate.py    # moving a JSON file into the database
 │   │   └── sqlite_repo.py # the database, and the only module that knows SQL
 │   ├── security.py       # the rules about the key, which the command needs too
-│   ├── service.py        # the rules: ordering, overdue, filter, search, summary
+│   ├── service.py        # the rules: overdue, filter, search, summary
 │   └── validators.py     # pure functions for the input
 ├── scripts/
-│   └── concurrency_demo.py   # what several processes writing at once costs
+│   ├── concurrency_demo.py   # what several processes writing at once costs
+│   └── paging_demo.py        # what a page costs against fetching everything
 ├── tests/
 │   ├── test_api.py           # the routes, in process, over an in-memory store
 │   ├── test_cli.py           # the menu and the server, as real processes
@@ -368,6 +385,7 @@ duewright/
 │   ├── test_json_repo.py     # the behaviours that belong to the file alone
 │   ├── test_sqlite_repo.py   # the behaviours that belong to the database alone
 │   ├── test_migrate.py       # moving the tasks over without losing any
+│   ├── test_paging_demo.py   # the measurement that a page is worth making
 │   └── ...
 ├── Dockerfile
 ├── pyproject.toml
@@ -378,5 +396,4 @@ duewright/
 
 ## What I would improve
 
-- Sorting and paging in the store instead of in Python.
 - A fourth place to keep the tasks, such as PostgreSQL. The contract suite and the interface are in place, so a new backend is one class and no change to the rules.
