@@ -25,9 +25,7 @@ class Task:
         self.id = id
         self.title = title
         self.done = done
-        self.created_at = (
-            created_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
-        )
+        self.created_at = created_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.priority = priority if priority in PRIORITIES else "medium"
         self.due_date = due_date
 

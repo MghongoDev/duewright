@@ -58,15 +58,11 @@ def load_tasks(path: Path) -> tuple[list[Task], int]:
         with open(path, encoding="utf-8") as handle:
             data: Any = json.load(handle)
         raw_tasks = data["tasks"]
-        if not isinstance(raw_tasks, list) or not all(
-            isinstance(item, dict) for item in raw_tasks
-        ):
+        if not isinstance(raw_tasks, list) or not all(isinstance(item, dict) for item in raw_tasks):
             raise ValueError("the file does not hold a list of tasks")
         tasks = [Task.from_dict(item) for item in raw_tasks]
     except json.JSONDecodeError as error:
-        raise CorruptStorageError(
-            f"it is not valid JSON ({error})", _set_aside(path)
-        ) from error
+        raise CorruptStorageError(f"it is not valid JSON ({error})", _set_aside(path)) from error
     except (KeyError, TypeError, ValueError) as error:
         raise CorruptStorageError(
             f"it is not shaped like a task file ({error})", _set_aside(path)
