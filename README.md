@@ -2,9 +2,13 @@
 
 Duewright is a command-line task manager. You pick an option from a menu to add, list, edit, mark done and delete tasks. Each task carries a title, a done flag and the moment it was created.
 
-Tasks are numbered with a stable id, and an id is never handed to a second task, so a number you wrote down keeps pointing at the same task even after a deletion. This first version keeps tasks in memory, which means they vanish when you quit; saving them to a file is the next step.
+Tasks are numbered with a stable id, and an id is never handed to a second task, so a number you wrote down keeps pointing at the same task even after a deletion. Every change is written to `tasks.json` in the project folder, so the list is still there the next time you run it.
 
-The plan of record is [`duewright-implementation-guide.md`](./duewright-implementation-guide.md), which is kept in the repo so the reasoning behind each phase stays next to the code.
+## Run it
+
+```
+python -m duewright
+```
 
 ## Menu
 
@@ -20,7 +24,7 @@ The plan of record is [`duewright-implementation-guide.md`](./duewright-implemen
 ## Sample session
 
 ```
-$ python main.py
+$ python -m duewright
 
 Duewright
 
@@ -44,7 +48,14 @@ Choose an option: 0
 Goodbye.
 ```
 
-A task looks like this:
+## Tests
+
+```
+pip install pytest
+python -m pytest
+```
+
+## The task shape
 
 ```json
 {

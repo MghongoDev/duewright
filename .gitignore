@@ -5,3 +5,4 @@ tasks.json
 tasks.json.tmp
 *.corrupt-*
 .env
+duewright-implementation-guide.md
