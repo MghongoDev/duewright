@@ -5,10 +5,11 @@ rest of the package testable and reusable.
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from duewright.manager import TaskManager, TaskNotFoundError
 from duewright.storage import CorruptStorageError, load_tasks, save_tasks
+from duewright.validators import clean_title, parse_task_id, parse_yes_no
 
 MENU = """
 1) Add a task
@@ -40,46 +41,79 @@ def print_tasks(manager: TaskManager) -> None:
         print(f"[{mark}]  {task.id}  {task.title}")
 
 
-def ask_id(question: str) -> Optional[int]:
-    """Read a task id, or return None when the answer is not a whole number."""
-    try:
-        return int(input(question))
-    except ValueError:
-        print("That is not a number.")
-        return None
+def prompt(question: str, parser: Callable[[str], Any]) -> Any:
+    """Ask until the parser accepts an answer, and let a blank answer cancel.
+
+    The parser is one of the validators, so the rule for what counts as a good
+    answer lives there and this loop only has to keep asking.
+    """
+    while True:
+        answer = input(question)
+        if not answer.strip():
+            return None
+        try:
+            return parser(answer)
+        except ValueError as error:
+            print(error)
+
+
+def ask_confirm(question: str) -> bool:
+    """Ask a yes or no question. A blank answer means no."""
+    while True:
+        answer = input(question).strip()
+        if not answer:
+            return False
+        try:
+            return parse_yes_no(answer)
+        except ValueError as error:
+            print(error)
 
 
 def commit(manager: TaskManager) -> None:
-    """Write the current tasks to disk."""
-    save_tasks(TASKS_FILE, manager.all(), manager.next_id)
+    """Write the current tasks to disk, reporting a write that fails."""
+    try:
+        save_tasks(TASKS_FILE, manager.all(), manager.next_id)
+    except OSError as error:
+        print(f"Your change was not saved: {error}")
+        print("It will be lost when you quit.")
 
 
 def handle_add(manager: TaskManager) -> None:
     """Ask for a title, add the task, then show the list."""
-    manager.add(input("Title: ").strip())
+    title = prompt("Title: ", clean_title)
+    if title is None:
+        print("Cancelled.")
+        return
+    manager.add(title)
     commit(manager)
     print_tasks(manager)
 
 
 def handle_update(manager: TaskManager) -> None:
     """Ask for an id and a new title, then show the list."""
-    task_id = ask_id("Task id to edit: ")
+    task_id = prompt("Task id to edit: ", parse_task_id)
     if task_id is None:
+        print("Cancelled.")
         return
-    title = input("New title: ").strip()
     try:
-        manager.update_title(task_id, title)
+        manager.get(task_id)
     except TaskNotFoundError:
         print(f"No task with id {task_id}.")
         return
+    title = prompt("New title: ", clean_title)
+    if title is None:
+        print("Cancelled.")
+        return
+    manager.update_title(task_id, title)
     commit(manager)
     print_tasks(manager)
 
 
 def handle_toggle(manager: TaskManager) -> None:
     """Ask for an id, flip its done flag, then show the list."""
-    task_id = ask_id("Task id to mark: ")
+    task_id = prompt("Task id to mark: ", parse_task_id)
     if task_id is None:
+        print("Cancelled.")
         return
     try:
         manager.toggle_done(task_id)
@@ -91,15 +125,20 @@ def handle_toggle(manager: TaskManager) -> None:
 
 
 def handle_delete(manager: TaskManager) -> None:
-    """Ask for an id, delete that task, then show the list."""
-    task_id = ask_id("Task id to delete: ")
+    """Ask for an id, confirm, delete that task, then show the list."""
+    task_id = prompt("Task id to delete: ", parse_task_id)
     if task_id is None:
+        print("Cancelled.")
         return
     try:
-        manager.delete(task_id)
+        task = manager.get(task_id)
     except TaskNotFoundError:
         print(f"No task with id {task_id}.")
         return
+    if not ask_confirm(f"Delete task {task_id} ({task.title})? (y/N) "):
+        print("Nothing was deleted.")
+        return
+    manager.delete(task_id)
     commit(manager)
     print_tasks(manager)
 
@@ -120,25 +159,28 @@ def load_manager() -> TaskManager:
 
 
 def main() -> None:
-    """Load the tasks, then run the menu loop."""
+    """Load the tasks, then run the menu loop until the user quits."""
     manager = load_manager()
     print("Duewright")
-    while True:
-        show_menu()
-        choice = input("Choose an option: ").strip()
+    try:
+        while True:
+            show_menu()
+            choice = input("Choose an option: ").strip()
 
-        if choice == "0":
-            print("Goodbye.")
-            break
-        elif choice == "1":
-            handle_add(manager)
-        elif choice == "2":
-            print_tasks(manager)
-        elif choice == "3":
-            handle_update(manager)
-        elif choice == "4":
-            handle_toggle(manager)
-        elif choice == "5":
-            handle_delete(manager)
-        else:
-            print(f"{choice!r} is not an option.")
+            if choice == "0":
+                print("Goodbye.")
+                break
+            elif choice == "1":
+                handle_add(manager)
+            elif choice == "2":
+                print_tasks(manager)
+            elif choice == "3":
+                handle_update(manager)
+            elif choice == "4":
+                handle_toggle(manager)
+            elif choice == "5":
+                handle_delete(manager)
+            else:
+                print(f"{choice!r} is not an option.")
+    except (KeyboardInterrupt, EOFError):
+        print("\nGoodbye.")

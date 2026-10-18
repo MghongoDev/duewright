@@ -46,6 +46,13 @@ def test_saving_leaves_no_temp_file_behind(tmp_path):
     assert [entry.name for entry in tmp_path.iterdir()] == ["tasks.json"]
 
 
+def test_a_write_that_fails_leaves_no_temp_file_behind(tmp_path):
+    path = tmp_path / "not-a-folder" / "tasks.json"
+    with pytest.raises(OSError):
+        save_tasks(path, [Task(title="Buy milk", id=1)], next_id=2)
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_non_ascii_title_survives_a_round_trip(tmp_path):
     path = tmp_path / "tasks.json"
     save_tasks(path, [Task(title="Buy café ☕", id=1)], next_id=2)

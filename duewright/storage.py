@@ -30,9 +30,14 @@ def save_tasks(path: Path, tasks: list[Task], next_id: int) -> None:
         "next_id": next_id,
         "tasks": [task.to_dict() for task in tasks],
     }
-    with open(tmp_path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, ensure_ascii=False)
-    os.replace(tmp_path, path)
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, path)
+    except OSError:
+        # A write that fails must not leave a stray temporary file behind.
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def load_tasks(path: Path) -> tuple[list[Task], int]:
