@@ -1,20 +1,25 @@
-"""The menu.
+"""The menu and the operational commands.
 
 This is the only module that reads input or prints, which is what keeps the
 rest of the package testable and reusable.
 """
 
+import argparse
+import sys
 from datetime import date
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from duewright import config
 from duewright.errors import (
     CorruptStorageError,
+    MigrationError,
     StorageVersionError,
     TaskNotFoundError,
     UnknownBackendError,
 )
 from duewright.models import Task
+from duewright.repositories.migrate import migrate_json
 from duewright.service import TaskService, is_due_today, is_overdue
 from duewright.validators import (
     clean_title,
@@ -212,8 +217,8 @@ def load_service() -> TaskService:
     return service
 
 
-def main() -> None:
-    """Load the tasks, then run the menu loop until the user quits."""
+def run_menu() -> None:
+    """Run the menu loop until the user quits."""
     try:
         service = load_service()
     except (StorageVersionError, UnknownBackendError) as error:
@@ -251,3 +256,43 @@ def main() -> None:
                 report_unreadable(error)
     except (KeyboardInterrupt, EOFError):
         print("\nGoodbye.")
+
+
+def run_migration(arguments: list[str]) -> int:
+    """Move a task file into the database, and return the exit code."""
+    parser = argparse.ArgumentParser(
+        prog="duewright migrate-json",
+        description="Move the tasks from a JSON file into the database.",
+    )
+    parser.add_argument("path", type=Path, help="the JSON file to read")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="read the file and check it without writing anything",
+    )
+    parsed = parser.parse_args(arguments)
+    database = config.data_dir() / config.DATABASE_FILE_NAME
+    try:
+        report = migrate_json(parsed.path, database, dry_run=parsed.dry_run)
+    except (MigrationError, CorruptStorageError, StorageVersionError) as error:
+        print(f"Nothing was moved: {error}.")
+        return 1
+    if not report.written:
+        print(f"The file holds {report.source_count} tasks, and nothing was written.")
+        print("This was a dry run.")
+        return 0
+    print(f"Moved {report.source_count} tasks into {database}.")
+    print("They were read back and compared, and every field matched.")
+    return 0
+
+
+def main() -> None:
+    """Run the menu, or one of the operational commands."""
+    arguments = sys.argv[1:]
+    if arguments and arguments[0] == "migrate-json":
+        raise SystemExit(run_migration(arguments[1:]))
+    if arguments:
+        print(f"{arguments[0]!r} is not a command.")
+        print("Run duewright with no arguments for the menu.")
+        raise SystemExit(2)
+    run_menu()
