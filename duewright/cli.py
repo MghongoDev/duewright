@@ -9,14 +9,10 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from duewright import config
-from duewright.manager import TaskManager, TaskNotFoundError, is_due_today, is_overdue
+from duewright.errors import StorageVersionError, TaskNotFoundError
 from duewright.models import Task
-from duewright.storage import (
-    CorruptStorageError,
-    StorageVersionError,
-    load_tasks,
-    save_tasks,
-)
+from duewright.repositories.json_repo import CorruptStorageError, JsonTaskRepository
+from duewright.service import TaskService, is_due_today, is_overdue
 from duewright.validators import (
     clean_title,
     parse_due_date,
@@ -69,19 +65,21 @@ def format_task(task: Task, today: date) -> str:
     return line.rstrip()
 
 
-def print_tasks(manager: TaskManager, tasks: Optional[list[Task]] = None) -> None:
-    """Print the given tasks, or the whole list, with a summary underneath."""
+def print_tasks(
+    service: TaskService,
+    done: Optional[bool] = None,
+    query: Optional[str] = None,
+) -> None:
+    """Print the list, or the view asked for, with a summary underneath."""
     today = date.today()
-    if not manager.all():
-        print("No tasks yet.")
+    page, total = service.list_tasks(done=done, query=query)
+    if total == 0:
+        filtered = done is not None or query is not None
+        print("No tasks match." if filtered else "No tasks yet.")
         return
-    shown = manager.list_tasks() if tasks is None else tasks
-    if not shown:
-        print("No tasks match.")
-    else:
-        for task in shown:
-            print(format_task(task, today))
-    print(manager.summary(today))
+    for task in page:
+        print(format_task(task, today))
+    print(service.summary(today))
 
 
 def prompt(question: str, parser: Callable[[str], Any], blank: Any = None) -> Any:
@@ -114,16 +112,13 @@ def ask_confirm(question: str) -> bool:
             print(error)
 
 
-def commit(manager: TaskManager) -> None:
-    """Write the current tasks to disk, reporting a write that fails."""
-    try:
-        save_tasks(tasks_file(), manager.all(), manager.next_id)
-    except OSError as error:
-        print(f"Your change was not saved: {error}")
-        print("It will be lost when you quit.")
+def report_damaged(error: CorruptStorageError) -> None:
+    """Say what happened to a task file that could not be read."""
+    print(f"The task file could not be read: {error}.")
+    print(f"It is kept as {error.spoiled_path.name}, and the list starts empty.")
 
 
-def handle_add(manager: TaskManager) -> None:
+def handle_add(service: TaskService) -> None:
     """Ask for a title, a priority and a due date, then show the list."""
     title = prompt("Title: ", clean_title)
     if title is None:
@@ -136,19 +131,18 @@ def handle_add(manager: TaskManager) -> None:
         print("Cancelled.")
         return
     due_date = prompt("Due date (YYYY-MM-DD, blank for none): ", parse_due_date, blank=None)
-    manager.add(title, priority=priority, due_date=due_date)
-    commit(manager)
-    print_tasks(manager)
+    service.add(title, priority=priority, due_date=due_date)
+    print_tasks(service)
 
 
-def handle_update(manager: TaskManager) -> None:
+def handle_update(service: TaskService) -> None:
     """Ask for an id and a new title, then show the list."""
     task_id = prompt("Task id to edit: ", parse_task_id)
     if task_id is None:
         print("Cancelled.")
         return
     try:
-        manager.get(task_id)
+        service.get(task_id)
     except TaskNotFoundError:
         print(f"No task with id {task_id}.")
         return
@@ -156,84 +150,79 @@ def handle_update(manager: TaskManager) -> None:
     if title is None:
         print("Cancelled.")
         return
-    manager.update_title(task_id, title)
-    commit(manager)
-    print_tasks(manager)
+    service.update_title(task_id, title)
+    print_tasks(service)
 
 
-def handle_toggle(manager: TaskManager) -> None:
+def handle_toggle(service: TaskService) -> None:
     """Ask for an id, flip its done flag, then show the list."""
     task_id = prompt("Task id to mark: ", parse_task_id)
     if task_id is None:
         print("Cancelled.")
         return
     try:
-        manager.toggle_done(task_id)
+        service.toggle_done(task_id)
     except TaskNotFoundError:
         print(f"No task with id {task_id}.")
         return
-    commit(manager)
-    print_tasks(manager)
+    print_tasks(service)
 
 
-def handle_delete(manager: TaskManager) -> None:
+def handle_delete(service: TaskService) -> None:
     """Ask for an id, confirm, delete that task, then show the list."""
     task_id = prompt("Task id to delete: ", parse_task_id)
     if task_id is None:
         print("Cancelled.")
         return
     try:
-        task = manager.get(task_id)
+        task = service.get(task_id)
     except TaskNotFoundError:
         print(f"No task with id {task_id}.")
         return
     if not ask_confirm(f"Delete task {task_id} ({task.title})? (y/N) "):
         print("Nothing was deleted.")
         return
-    manager.delete(task_id)
-    commit(manager)
-    print_tasks(manager)
+    service.delete(task_id)
+    print_tasks(service)
 
 
-def handle_filter(manager: TaskManager) -> None:
+def handle_filter(service: TaskService) -> None:
     """Ask which tasks to show, then show that view."""
     state = prompt("Show (all/pending/done): ", parse_state, blank="all")
     if state is None:
         print("Cancelled.")
         return
     done = {"all": None, "pending": False, "done": True}[state]
-    print_tasks(manager, manager.list_tasks(done=done))
+    print_tasks(service, done=done)
 
 
-def handle_search(manager: TaskManager) -> None:
+def handle_search(service: TaskService) -> None:
     """Ask for a keyword, then show the tasks whose title contains it."""
     query = input("Search titles: ").strip()
     if not query:
         print("Cancelled.")
         return
-    print_tasks(manager, manager.list_tasks(query=query))
+    print_tasks(service, query=query)
 
 
-def load_manager() -> TaskManager:
-    """Build a manager from the task file, reporting a file it cannot read."""
-    path = tasks_file()
+def load_service() -> TaskService:
+    """Build the service over the task file, reporting a file it cannot read.
+
+    The first read happens here, so a damaged file is reported before the menu
+    appears rather than when the first option is chosen.
+    """
+    service = TaskService(JsonTaskRepository(tasks_file()))
     try:
-        tasks, next_id = load_tasks(path)
+        service.list_tasks()
     except CorruptStorageError as error:
-        print(f"{path.name} could not be read: {error}.")
-        print(f"It is kept as {error.spoiled_path.name}, and Duewright is starting empty.")
-        tasks, next_id = [], 1
-    except OSError as error:
-        print(f"Could not read {path.name}: {error}")
-        print("Duewright is starting with an empty list.")
-        tasks, next_id = [], 1
-    return TaskManager(tasks, next_id)
+        report_damaged(error)
+    return service
 
 
 def main() -> None:
     """Load the tasks, then run the menu loop until the user quits."""
     try:
-        manager = load_manager()
+        service = load_service()
     except StorageVersionError as error:
         print(f"Cannot start: {error}")
         return
@@ -246,21 +235,26 @@ def main() -> None:
             if choice == "0":
                 print("Goodbye.")
                 break
-            elif choice == "1":
-                handle_add(manager)
-            elif choice == "2":
-                print_tasks(manager)
-            elif choice == "3":
-                handle_update(manager)
-            elif choice == "4":
-                handle_toggle(manager)
-            elif choice == "5":
-                handle_delete(manager)
-            elif choice == "6":
-                handle_filter(manager)
-            elif choice == "7":
-                handle_search(manager)
-            else:
-                print(f"{choice!r} is not an option.")
+            try:
+                if choice == "1":
+                    handle_add(service)
+                elif choice == "2":
+                    print_tasks(service)
+                elif choice == "3":
+                    handle_update(service)
+                elif choice == "4":
+                    handle_toggle(service)
+                elif choice == "5":
+                    handle_delete(service)
+                elif choice == "6":
+                    handle_filter(service)
+                elif choice == "7":
+                    handle_search(service)
+                else:
+                    print(f"{choice!r} is not an option.")
+            except CorruptStorageError as error:
+                # Every operation reads the file, so a file damaged while the
+                # menu is open surfaces here rather than at the next restart.
+                report_damaged(error)
     except (KeyboardInterrupt, EOFError):
         print("\nGoodbye.")
