@@ -298,3 +298,53 @@ def test_a_task_crosses_between_the_menu_and_the_api(tmp_path):
         server.terminate()
         server.wait(timeout=30)
         log.close()
+
+
+def edit_and_list(answers, data_dir, cwd):
+    """Add a task, then run the menu again with the given answers."""
+    run_menu("1\nPay the rent\nmedium\n2026-11-01\n0\n", data_dir, cwd)
+    return run_menu(answers, data_dir, cwd)
+
+
+def test_the_menu_can_change_a_priority(tmp_path):
+    """A blank title and a blank due date keep what the task already has."""
+    result = edit_and_list("3\n1\n\nhigh\n\n0\n", tmp_path, tmp_path)
+    assert result.returncode == 0
+    assert "Pay the rent" in result.stdout
+    assert "high" in result.stdout
+    assert "due 2026-11-01" in result.stdout
+
+
+def test_the_menu_can_change_a_due_date(tmp_path):
+    result = edit_and_list("3\n1\n\n\n2026-12-24\n0\n", tmp_path, tmp_path)
+    assert "due 2026-12-24" in result.stdout
+
+
+def test_the_menu_can_clear_a_due_date(tmp_path):
+    result = edit_and_list("3\n1\n\n\nnone\n0\n", tmp_path, tmp_path)
+    assert "due 2026-11-01" not in result.stdout
+    assert "Pay the rent" in result.stdout
+
+
+def test_the_menu_can_change_a_title_as_before(tmp_path):
+    result = edit_and_list("3\n1\nPay the water bill\n\n\n0\n", tmp_path, tmp_path)
+    assert "1  Pay the water bill" in result.stdout
+
+
+def test_a_blank_answer_to_every_field_changes_nothing(tmp_path):
+    result = edit_and_list("3\n1\n\n\n\n0\n", tmp_path, tmp_path)
+    assert "Nothing was changed." in result.stdout
+    assert "due 2026-11-01" in result.stdout
+
+
+def test_an_answer_that_makes_no_sense_is_asked_again(tmp_path):
+    """The bad answer is refused, and the question comes back."""
+    result = edit_and_list("3\n1\n\nurgent\nhigh\n\n0\n", tmp_path, tmp_path)
+    assert "Priority is low, medium or high." in result.stdout
+    assert "high" in result.stdout
+
+
+def test_editing_a_task_that_is_not_there_changes_nothing(tmp_path):
+    result = edit_and_list("3\n99\n\nhigh\n\n0\n", tmp_path, tmp_path)
+    assert "No task with id 99." in result.stdout
+    assert "Goodbye." in result.stdout

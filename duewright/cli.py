@@ -23,8 +23,10 @@ from duewright.repositories.migrate import migrate_json
 from duewright.security import GENERATE_A_KEY, key_problem
 from duewright.service import TaskService, is_due_today, is_overdue
 from duewright.validators import (
+    CLEAR,
     clean_title,
     parse_due_date,
+    parse_due_date_edit,
     parse_priority,
     parse_state,
     parse_task_id,
@@ -34,7 +36,7 @@ from duewright.validators import (
 MENU = """
 1) Add a task
 2) List tasks
-3) Edit a task title
+3) Edit a task
 4) Mark a task done / undone
 5) Delete a task
 6) Filter the list
@@ -43,6 +45,10 @@ MENU = """
 """
 
 TITLE_COLUMN = 24
+
+# What a blank answer means while a field is being changed: keep the
+# value the task already has.
+KEEP = object()
 
 # The address the server binds to unless it is told otherwise. It is the
 # loopback address rather than every address, so starting the server does not
@@ -140,21 +146,42 @@ def handle_add(service: TaskService) -> None:
 
 
 def handle_update(service: TaskService) -> None:
-    """Ask for an id and a new title, then show the list."""
+    """Ask which task to change, then offer each field in turn.
+
+    A field left blank keeps the value the task already has, which is the
+    rule the API applies to a field left out of a request. A due date is
+    cleared by answering none, because a blank answer already means keep.
+    """
     task_id = prompt("Task id to edit: ", parse_task_id)
     if task_id is None:
         print("Cancelled.")
         return
     try:
-        service.get(task_id)
+        task = service.get(task_id)
     except TaskNotFoundError:
         print(f"No task with id {task_id}.")
         return
-    title = prompt("New title: ", clean_title)
-    if title is None:
-        print("Cancelled.")
+    print(f"Changing {task.id}: {task.title}. Leave a field blank to keep it.")
+    changes: dict[str, Any] = {}
+    title = prompt(f"New title ({task.title}): ", clean_title, blank=KEEP)
+    if title is not KEEP:
+        changes["title"] = title
+    priority = prompt(f"New priority ({task.priority}): ", parse_priority, blank=KEEP)
+    if priority is not KEEP:
+        changes["priority"] = priority
+    current = task.due_date.isoformat() if task.due_date else "none"
+    due = prompt(
+        f"New due date (YYYY-MM-DD, none to clear it, now {current}): ",
+        parse_due_date_edit,
+        blank=KEEP,
+    )
+    if due is not KEEP:
+        changes["due_date"] = None if due is CLEAR else due
+    if not changes:
+        print("Nothing was changed.")
+        print_tasks(service)
         return
-    service.update_title(task_id, title)
+    service.change(task_id, changes)
     print_tasks(service)
 
 
