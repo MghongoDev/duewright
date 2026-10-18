@@ -1,5 +1,7 @@
 # Duewright
 
+![CI](https://github.com/MghongoDev/duewright/actions/workflows/ci.yml/badge.svg)
+
 A command-line task manager. You pick an option from a menu to add, list, edit, mark done and delete tasks, and every change is written to a task file straight away.
 
 Tasks are numbered with a stable id, and an id is never handed to a second task, so a number you wrote down keeps pointing at the same task even after a deletion.
