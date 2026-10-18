@@ -43,7 +43,8 @@ def test_a_title_that_looks_like_sql_is_stored_as_typed(tmp_path):
     hostile = "'); DROP TABLE tasks;--"
     repo = SqliteTaskRepository(path)
     repo.add(Task(title=hostile))
-    assert repo.list_tasks()[0].title == hostile
+    page, _ = repo.list_tasks()
+    assert page[0].title == hostile
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT count(*) FROM tasks").fetchone()[0] == 1
 

@@ -8,6 +8,7 @@ from typing import Optional
 
 from duewright.errors import TaskNotFoundError
 from duewright.models import Task
+from duewright.repositories.base import matches, page_of, sort_key
 
 
 class InMemoryTaskRepository:
@@ -17,15 +18,16 @@ class InMemoryTaskRepository:
         self._tasks: dict[int, Task] = {}
         self._next_id = 1
 
-    def list_tasks(self, done: Optional[bool] = None, query: Optional[str] = None) -> list[Task]:
-        """Return the tasks that match, in the order they were added."""
-        tasks = list(self._tasks.values())
-        if done is not None:
-            tasks = [task for task in tasks if task.done is done]
-        if query:
-            needle = query.casefold()
-            tasks = [task for task in tasks if needle in task.title.casefold()]
-        return tasks
+    def list_tasks(
+        self,
+        done: Optional[bool] = None,
+        query: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> tuple[list[Task], int]:
+        """Return one page of the tasks that match, in display order, and the total."""
+        matched = [task for task in self._tasks.values() if matches(task, done, query)]
+        return page_of(sorted(matched, key=sort_key), limit, offset)
 
     def get(self, task_id: int) -> Task:
         """Return one task, or raise TaskNotFoundError."""

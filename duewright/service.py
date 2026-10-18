@@ -12,27 +12,8 @@ from duewright.models import Task
 from duewright.repositories.base import TaskRepository
 from duewright.validators import clean_title, parse_priority
 
-# The order the display puts priorities in, best first.
-PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
-
 # The fields of a task that a change may name.
 CHANGEABLE_FIELDS = ("title", "priority", "due_date", "done")
-
-
-def sort_key(task: Task) -> tuple:
-    """Return the key that orders the list.
-
-    Pending tasks first, then tasks that carry a due date, earliest due date
-    first, then higher priority, then lower id. Python compares the tuple
-    element by element, so the order of this tuple is the order of the list.
-    """
-    return (
-        task.done,
-        task.due_date is None,
-        task.due_date or date.max,
-        PRIORITY_ORDER.get(task.priority, PRIORITY_ORDER["medium"]),
-        task.id or 0,
-    )
 
 
 def is_overdue(task: Task, today: date) -> bool:
@@ -136,22 +117,16 @@ class TaskService:
     ) -> tuple[list[Task], int]:
         """Return one page of the tasks in display order, and how many matched.
 
-        The repository hands back the filtered tasks in the order they were
-        added, and the ordering and the paging happen here, in Python. That is
-        fine at this scale, and a store holding hundreds of thousands of tasks
-        would do both in the store instead.
+        The store does the ordering and the paging, so a store holding a
+        hundred thousand tasks answers a page without sending the rest across
+        the boundary.
         """
-        matched = self.repository.list_tasks(done=done, query=query)
-        ordered = sorted(matched, key=sort_key)
-        total = len(ordered)
-        if limit is None:
-            return ordered[offset:], total
-        return ordered[offset : offset + limit], total
+        return self.repository.list_tasks(done=done, query=query, limit=limit, offset=offset)
 
     def summary(self, today: Optional[date] = None) -> str:
         """Return a line describing the whole list, not a filtered view."""
         today = today or date.today()
-        tasks = self.repository.list_tasks()
+        tasks, _ = self.repository.list_tasks()
         pending = sum(1 for task in tasks if not task.done)
         done = sum(1 for task in tasks if task.done)
         overdue = sum(1 for task in tasks if is_overdue(task, today))

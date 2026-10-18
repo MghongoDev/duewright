@@ -28,6 +28,9 @@ jobs:
         run: |
           python scripts/concurrency_demo.py --backend sqlite
           python scripts/concurrency_demo.py --backend json
+      - name: Measure what a page costs against fetching everything
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: python scripts/paging_demo.py --tasks 100000 --page 20
 
   image:
     runs-on: ubuntu-latest

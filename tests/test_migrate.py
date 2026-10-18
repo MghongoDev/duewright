@@ -59,7 +59,7 @@ def test_a_version_1_file_moves_over(tmp_path):
     report = migrate_json(source, tmp_path / "tasks.db")
     assert report.source_count == 2
     assert report.written is True
-    moved = SqliteTaskRepository(tmp_path / "tasks.db").list_tasks()
+    moved, _ = SqliteTaskRepository(tmp_path / "tasks.db").list_tasks()
     assert [task.id for task in moved] == [1, 2]
     assert [task.title for task in moved] == ["Buy milk", "Call Sam"]
     assert moved[1].done is True
@@ -70,7 +70,8 @@ def test_a_version_2_file_keeps_every_field(tmp_path):
     source = tmp_path / "tasks.json"
     write_version_2(source)
     migrate_json(source, tmp_path / "tasks.db")
-    moved = SqliteTaskRepository(tmp_path / "tasks.db").list_tasks()[0]
+    page, _ = SqliteTaskRepository(tmp_path / "tasks.db").list_tasks()
+    moved = page[0]
     assert moved.priority == "high"
     assert moved.due_date == date(2026, 10, 5)
     assert moved.created_at == CREATED
@@ -109,7 +110,7 @@ def test_a_damaged_source_leaves_the_destination_empty(tmp_path):
     database = tmp_path / "tasks.db"
     with pytest.raises(CorruptStorageError):
         migrate_json(source, database)
-    assert SqliteTaskRepository(database).list_tasks() == []
+    assert SqliteTaskRepository(database).list_tasks()[0] == []
 
 
 def test_the_tasks_keep_their_ids_even_out_of_order(tmp_path):
@@ -130,7 +131,7 @@ def test_the_tasks_keep_their_ids_even_out_of_order(tmp_path):
     )
     report = migrate_json(source, tmp_path / "tasks.db")
     assert report.written is True
-    moved = SqliteTaskRepository(tmp_path / "tasks.db").list_tasks()
+    moved, _ = SqliteTaskRepository(tmp_path / "tasks.db").list_tasks()
     assert sorted(task.id for task in moved) == [3, 7]
 
 

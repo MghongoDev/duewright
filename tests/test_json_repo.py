@@ -123,5 +123,6 @@ def test_a_write_that_fails_leaves_no_temp_file_behind(tmp_path):
 def test_a_non_ascii_title_survives(tmp_path):
     path = tmp_path / "tasks.json"
     JsonTaskRepository(path).add(Task(title="Buy café ☕"))
-    assert JsonTaskRepository(path).list_tasks()[0].title == "Buy café ☕"
+    page, _ = JsonTaskRepository(path).list_tasks()
+    assert page[0].title == "Buy café ☕"
     assert "café ☕" in path.read_text(encoding="utf-8")

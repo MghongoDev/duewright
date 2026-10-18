@@ -33,7 +33,7 @@ def build(backend: str, folder: Path) -> TaskRepository:
 
 def count(backend: str, folder: Path) -> int:
     """How many tasks the store holds now."""
-    return len(build(backend, folder).list_tasks())
+    return build(backend, folder).list_tasks()[1]
 
 
 def add_tasks(job: tuple[str, str, int, int]) -> tuple[int, int, str]:
