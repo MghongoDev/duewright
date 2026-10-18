@@ -1,15 +1,15 @@
 """What happens when several processes write at once.
 
 The database serialises its writers, so nothing is lost. A JSON file does not,
-so processes overwrite each other's work, and on Windows a process can fail
-outright while another one is replacing the file.
+so processes overwrite each other's work, and a process can fail outright
+while another one is replacing the file.
 
     python scripts/concurrency_demo.py
     python scripts/concurrency_demo.py --backend json --workers 4 --tasks 50
 
 The numbers are printed rather than asserted, because this measures a
 behaviour rather than checking one. The suite runs the same script with small
-numbers; the README records the full run.
+numbers; the README records the full run on Windows and on Linux.
 """
 
 import argparse
@@ -56,8 +56,15 @@ def add_tasks(job: tuple[str, str, int, int]) -> tuple[int, int, str]:
 
 
 def run(backend: str, workers: int, tasks: int, folder: Path) -> None:
-    """Start the writers, then report what survived."""
+    """Start the writers, then report what survived.
+
+    Two things can go wrong and they are counted apart. A worker can fail, so
+    the tasks it was given are never added at all. Or a worker can succeed and
+    another process can overwrite its work afterwards, which is the quieter
+    failure and the one that matters.
+    """
     folder.mkdir(parents=True, exist_ok=True)
+    asked = workers * tasks
     print(f"backend: {backend}")
     print(f"workers: {workers}, tasks each: {tasks}")
     print(f"folder: {folder}")
@@ -67,16 +74,20 @@ def run(backend: str, workers: int, tasks: int, folder: Path) -> None:
         results = pool.map(add_tasks, jobs)
     reported = sum(added for _, added, _ in results)
     stored = count(backend, folder)
+    never_added = asked - reported
+    overwritten = reported - stored
+    print(f"tasks the workers were asked to add: {asked}")
     print(f"tasks the workers reported adding: {reported}")
     print(f"tasks in the store afterwards: {stored}")
-    print(f"tasks lost: {reported - stored}")
+    print(f"tasks a worker failed to add: {never_added}")
+    print(f"tasks overwritten by another process: {overwritten}")
     for worker, _, message in results:
         if message:
             print(f"worker {worker} failed: {message}")
-    if reported == stored:
+    if never_added == 0 and overwritten == 0:
         print("Nothing was lost.")
     else:
-        print("Tasks were lost, or a worker failed outright.")
+        print("Not everything arrived: this store lost work when two processes wrote at once.")
 
 
 def main() -> None:

@@ -1,7 +1,7 @@
 """The script that measures what several processes writing at once costs.
 
 The numbers are small here so the suite stays quick. The README records the
-full run of four processes adding fifty tasks each.
+full run of four processes adding fifty tasks each, on Windows and on Linux.
 """
 
 import os
@@ -41,9 +41,11 @@ def test_the_database_loses_nothing_when_processes_write_at_once(tmp_path):
         "--backend", "sqlite", "--workers", "2", "--tasks", "10", "--data-dir", str(tmp_path)
     )
     assert result.returncode == 0
+    assert reported(result, "tasks the workers were asked to add") == 20
     assert reported(result, "tasks the workers reported adding") == 20
     assert reported(result, "tasks in the store afterwards") == 20
-    assert reported(result, "tasks lost") == 0
+    assert reported(result, "tasks a worker failed to add") == 0
+    assert reported(result, "tasks overwritten by another process") == 0
     assert "Nothing was lost." in result.stdout
 
 
@@ -53,8 +55,21 @@ def test_the_file_backend_reports_what_happened(tmp_path):
         "--backend", "json", "--workers", "2", "--tasks", "10", "--data-dir", str(tmp_path)
     )
     assert result.returncode == 0
-    assert reported(result, "tasks in the store afterwards") <= 20
-    assert "Nothing was lost." in result.stdout or "Tasks were lost" in result.stdout
+    assert "Nothing was lost." in result.stdout or "Not everything arrived" in result.stdout
+
+
+def test_the_file_backend_accounts_for_every_task_it_was_given(tmp_path):
+    """Every task is either stored, or counted as failed, or counted as overwritten."""
+    result = run_demo(
+        "--backend", "json", "--workers", "2", "--tasks", "10", "--data-dir", str(tmp_path)
+    )
+    asked = reported(result, "tasks the workers were asked to add")
+    stored = reported(result, "tasks in the store afterwards")
+    failed = reported(result, "tasks a worker failed to add")
+    overwritten = reported(result, "tasks overwritten by another process")
+    assert asked == 20
+    assert stored == asked - failed - overwritten
+    assert stored <= asked
 
 
 def test_the_reported_count_matches_the_store_on_disk(tmp_path):
