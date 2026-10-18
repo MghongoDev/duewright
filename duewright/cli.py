@@ -5,13 +5,16 @@ rest of the package testable and reusable.
 """
 
 from datetime import date
-from pathlib import Path
 from typing import Any, Callable, Optional
 
 from duewright import config
-from duewright.errors import StorageVersionError, TaskNotFoundError
+from duewright.errors import (
+    CorruptStorageError,
+    StorageVersionError,
+    TaskNotFoundError,
+    UnknownBackendError,
+)
 from duewright.models import Task
-from duewright.repositories.json_repo import CorruptStorageError, JsonTaskRepository
 from duewright.service import TaskService, is_due_today, is_overdue
 from duewright.validators import (
     clean_title,
@@ -33,18 +36,7 @@ MENU = """
 0) Quit
 """
 
-TASKS_FILE_NAME = "tasks.json"
-
 TITLE_COLUMN = 24
-
-
-def tasks_file() -> Path:
-    """Return the task file inside the per-user data folder.
-
-    The folder comes from the configuration, so the file no longer depends on
-    where the code is installed or on the folder the menu was started from.
-    """
-    return config.data_dir() / TASKS_FILE_NAME
 
 
 def show_menu() -> None:
@@ -112,10 +104,11 @@ def ask_confirm(question: str) -> bool:
             print(error)
 
 
-def report_damaged(error: CorruptStorageError) -> None:
-    """Say what happened to a task file that could not be read."""
-    print(f"The task file could not be read: {error}.")
-    print(f"It is kept as {error.spoiled_path.name}, and the list starts empty.")
+def report_unreadable(error: CorruptStorageError) -> None:
+    """Say what happened to a store that could not be read."""
+    print(f"The store could not be read: {error}.")
+    if error.spoiled_path is not None:
+        print(f"It is kept as {error.spoiled_path.name}, and the list starts empty.")
 
 
 def handle_add(service: TaskService) -> None:
@@ -206,16 +199,16 @@ def handle_search(service: TaskService) -> None:
 
 
 def load_service() -> TaskService:
-    """Build the service over the task file, reporting a file it cannot read.
+    """Build the service over whatever the settings say.
 
-    The first read happens here, so a damaged file is reported before the menu
-    appears rather than when the first option is chosen.
+    The first read happens here, so a store that cannot be read is reported
+    before the menu appears rather than when the first option is chosen.
     """
-    service = TaskService(JsonTaskRepository(tasks_file()))
+    service = TaskService(config.make_repository())
     try:
         service.list_tasks()
     except CorruptStorageError as error:
-        report_damaged(error)
+        report_unreadable(error)
     return service
 
 
@@ -223,7 +216,7 @@ def main() -> None:
     """Load the tasks, then run the menu loop until the user quits."""
     try:
         service = load_service()
-    except StorageVersionError as error:
+    except (StorageVersionError, UnknownBackendError) as error:
         print(f"Cannot start: {error}")
         return
     print("Duewright")
@@ -253,8 +246,8 @@ def main() -> None:
                 else:
                     print(f"{choice!r} is not an option.")
             except CorruptStorageError as error:
-                # Every operation reads the file, so a file damaged while the
+                # Every operation reads the store, so one that breaks while the
                 # menu is open surfaces here rather than at the next restart.
-                report_damaged(error)
+                report_unreadable(error)
     except (KeyboardInterrupt, EOFError):
         print("\nGoodbye.")

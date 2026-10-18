@@ -12,9 +12,10 @@ from duewright.errors import TaskNotFoundError
 from duewright.models import Task
 from duewright.repositories.json_repo import JsonTaskRepository
 from duewright.repositories.memory import InMemoryTaskRepository
+from duewright.repositories.sqlite_repo import SqliteTaskRepository
 
 
-@pytest.fixture(params=["json", "memory"])
+@pytest.fixture(params=["json", "sqlite", "memory"])
 def make_repo(request, tmp_path):
     """Build a repository. Calling it twice means the same store, restarted."""
     shared = InMemoryTaskRepository()
@@ -22,6 +23,8 @@ def make_repo(request, tmp_path):
     def factory():
         if request.param == "json":
             return JsonTaskRepository(tmp_path / "tasks.json")
+        if request.param == "sqlite":
+            return SqliteTaskRepository(tmp_path / "tasks.db")
         return shared
 
     return factory
