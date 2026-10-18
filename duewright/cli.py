@@ -20,6 +20,7 @@ from duewright.errors import (
 )
 from duewright.models import Task
 from duewright.repositories.migrate import migrate_json
+from duewright.security import GENERATE_A_KEY, key_problem
 from duewright.service import TaskService, is_due_today, is_overdue
 from duewright.validators import (
     clean_title,
@@ -281,6 +282,12 @@ def run_server(arguments: list[str]) -> int:
         help="the port to listen on (default: 8000)",
     )
     parsed = parser.parse_args(arguments)
+    problem = key_problem()
+    if problem is not None:
+        print(f"Cannot start: {problem}.")
+        print("Generate a key with:")
+        print(f"  {GENERATE_A_KEY}")
+        return 2
     # Imported here rather than at the top, so the menu works without the api
     # extra installed.
     import uvicorn

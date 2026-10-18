@@ -10,6 +10,8 @@ import time
 import httpx
 
 CREATED = "2026-10-18T17:52:04+00:00"
+TEST_KEY = "test-key-1234567890"
+HEADER = {"X-API-Key": TEST_KEY}
 
 
 def run_menu(answers, data_dir, cwd, backend=None):
@@ -169,10 +171,14 @@ def free_port():
         return sock.getsockname()[1]
 
 
-def start_server(tmp_path, *arguments):
+def start_server(tmp_path, *arguments, key=TEST_KEY):
     """Start the server as a process, with its log going to a file."""
     environment = dict(os.environ, DUEWRIGHT_DATA_DIR=str(tmp_path))
     environment.pop("DUEWRIGHT_BACKEND", None)
+    if key is None:
+        environment.pop("DUEWRIGHT_API_KEY", None)
+    else:
+        environment["DUEWRIGHT_API_KEY"] = key
     log = open(tmp_path / "server.log", "w", encoding="utf-8")
     process = subprocess.Popen(
         [sys.executable, "-m", "duewright", "serve", *arguments],
@@ -186,6 +192,11 @@ def start_server(tmp_path, *arguments):
     return process, log
 
 
+def server_log(tmp_path):
+    """What the server wrote to its log."""
+    return (tmp_path / "server.log").read_text(encoding="utf-8")
+
+
 def wait_for_health(port, tmp_path, timeout=60.0):
     """Wait until the server answers, then return that response."""
     deadline = time.monotonic() + timeout
@@ -194,12 +205,11 @@ def wait_for_health(port, tmp_path, timeout=60.0):
             return httpx.get(f"http://127.0.0.1:{port}/health", timeout=5.0)
         except httpx.HTTPError:
             time.sleep(0.25)
-    log = (tmp_path / "server.log").read_text(encoding="utf-8")
-    raise AssertionError(f"the server never answered:\n{log}")
+    raise AssertionError(f"the server never answered:\n{server_log(tmp_path)}")
 
 
 def test_the_serve_command_answers_over_http(tmp_path):
-    """The server starts where it is told and answers the routes."""
+    """The server starts where it is told, and health answers without a key."""
     port = free_port()
     server, log = start_server(tmp_path, "--port", str(port))
     try:
@@ -209,15 +219,54 @@ def test_the_serve_command_answers_over_http(tmp_path):
         created = httpx.post(
             f"http://127.0.0.1:{port}/api/v1/tasks",
             json={"title": "Buy milk", "priority": "high"},
+            headers=HEADER,
             timeout=10.0,
         )
         assert created.status_code == 201
-        listed = httpx.get(f"http://127.0.0.1:{port}/api/v1/tasks", timeout=10.0).json()
+        listed = httpx.get(
+            f"http://127.0.0.1:{port}/api/v1/tasks", headers=HEADER, timeout=10.0
+        ).json()
         assert listed["total"] == 1
         assert listed["items"][0]["title"] == "Buy milk"
     finally:
         server.terminate()
         server.wait(timeout=30)
+        log.close()
+
+
+def test_a_real_server_refuses_a_request_without_the_key(tmp_path):
+    """The key is enforced by the server, not only by the test client."""
+    port = free_port()
+    server, log = start_server(tmp_path, "--port", str(port))
+    try:
+        wait_for_health(port, tmp_path)
+        refused = httpx.get(f"http://127.0.0.1:{port}/api/v1/tasks", timeout=10.0)
+        assert refused.status_code == 401
+        allowed = httpx.get(f"http://127.0.0.1:{port}/api/v1/tasks", headers=HEADER, timeout=10.0)
+        assert allowed.status_code == 200
+    finally:
+        server.terminate()
+        server.wait(timeout=30)
+        log.close()
+
+
+def test_the_serve_command_refuses_to_start_without_a_key(tmp_path):
+    """A server with no key would be open to anything that can reach the port."""
+    server, log = start_server(tmp_path, "--port", str(free_port()), key=None)
+    try:
+        assert server.wait(timeout=30) == 2
+        assert "DUEWRIGHT_API_KEY is not set" in server_log(tmp_path)
+        assert "token_urlsafe" in server_log(tmp_path)
+    finally:
+        log.close()
+
+
+def test_the_serve_command_refuses_a_key_that_is_too_short(tmp_path):
+    server, log = start_server(tmp_path, "--port", str(free_port()), key="short")
+    try:
+        assert server.wait(timeout=30) == 2
+        assert "shorter than 16 characters" in server_log(tmp_path)
+    finally:
         log.close()
 
 
@@ -230,6 +279,7 @@ def test_a_task_crosses_between_the_menu_and_the_api(tmp_path):
         created = httpx.post(
             f"http://127.0.0.1:{port}/api/v1/tasks",
             json={"title": "Added over HTTP"},
+            headers=HEADER,
             timeout=10.0,
         )
         assert created.status_code == 201
@@ -238,7 +288,9 @@ def test_a_task_crosses_between_the_menu_and_the_api(tmp_path):
         assert "Added over HTTP" in listed.stdout
 
         run_menu("1\nAdded in the menu\nlow\n\n0\n", tmp_path, tmp_path)
-        over_http = httpx.get(f"http://127.0.0.1:{port}/api/v1/tasks", timeout=10.0).json()
+        over_http = httpx.get(
+            f"http://127.0.0.1:{port}/api/v1/tasks", headers=HEADER, timeout=10.0
+        ).json()
         assert over_http["total"] == 2
         titles = {task["title"] for task in over_http["items"]}
         assert titles == {"Added over HTTP", "Added in the menu"}

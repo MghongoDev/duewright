@@ -100,6 +100,29 @@ duewright serve
 
 That binds to `127.0.0.1:8000`. It is the loopback address rather than every address, so starting the server does not put your task list on the network. `--host` and `--port` change both. Open `http://127.0.0.1:8000/docs` to try every route by hand.
 
+### The key
+
+Every route that holds data needs a key, sent as the `X-API-Key` header. The server refuses to start without one rather than starting open:
+
+```
+export DUEWRIGHT_API_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+duewright serve
+```
+
+The key has to be at least sixteen characters. `.env.example` shows where it goes, and `.env` is ignored, so a real key never reaches the repository. Nothing logs it and no response echoes it. The interactive docs offer an Authorize button, so `/docs` works with the key too.
+
+A server that cannot find a usable key stops and says how to make one:
+
+```
+Cannot start: DUEWRIGHT_API_KEY is not set.
+Generate a key with:
+  python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+The key is compared in a way that takes the same time whatever it is, so it cannot be guessed a character at a time. When no key is configured, every request is refused rather than allowed, which is the safer way to be wrong. `/health` stays open and exposes nothing.
+
+This is not a login system. There is one key and one user, and anyone holding the key has the whole list. That is enough for a tool you run yourself, and not enough for anything shared.
+
 The routes, all under `/api/v1`:
 
 ```
