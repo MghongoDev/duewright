@@ -151,9 +151,7 @@ def test_an_unknown_priority_falls_back_to_medium(tmp_path):
 
 def test_a_newer_file_is_refused_rather_than_overwritten(tmp_path):
     path = tmp_path / "tasks.json"
-    path.write_text(
-        json.dumps({"version": 99, "next_id": 2, "tasks": []}), encoding="utf-8"
-    )
+    path.write_text(json.dumps({"version": 99, "next_id": 2, "tasks": []}), encoding="utf-8")
     with pytest.raises(StorageVersionError):
         load_tasks(path)
     assert path.exists()

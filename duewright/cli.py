@@ -135,9 +135,7 @@ def handle_add(manager: TaskManager) -> None:
     if priority is None:
         print("Cancelled.")
         return
-    due_date = prompt(
-        "Due date (YYYY-MM-DD, blank for none): ", parse_due_date, blank=None
-    )
+    due_date = prompt("Due date (YYYY-MM-DD, blank for none): ", parse_due_date, blank=None)
     manager.add(title, priority=priority, due_date=due_date)
     commit(manager)
     print_tasks(manager)
