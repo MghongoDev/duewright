@@ -38,6 +38,8 @@ python -m pytest
 
 Pending tasks come first, then tasks that carry a due date, earliest due date first, then higher priority before lower, then lower id. A task is overdue when it is pending and its due date has passed. A task due today gets its own marker, because it is not late yet.
 
+The service does the ordering and the paging in Python rather than in the store. That is the right trade at this size and the wrong one for hundreds of thousands of tasks.
+
 ## Menu
 
 ```
@@ -120,28 +122,35 @@ Three details are worth knowing. Every write goes to a temporary file that is sw
 ```
 duewright/
 ├── duewright/
-│   ├── __main__.py      # python -m duewright
-│   ├── cli.py           # the menu, the only module that reads input or prints
-│   ├── config.py        # where the task file lives
-│   ├── manager.py       # the rules: ordering, overdue, filter, search, summary
-│   ├── models.py        # Task
-│   ├── storage.py       # the only module that knows about JSON and the filesystem
-│   └── validators.py    # pure functions for the input
+│   ├── __main__.py       # python -m duewright
+│   ├── cli.py            # the menu, the only module that reads input or prints
+│   ├── config.py         # where the task file lives
+│   ├── errors.py         # the errors the package raises
+│   ├── models.py         # Task
+│   ├── repositories/
+│   │   ├── base.py       # the interface a repository has to satisfy
+│   │   ├── json_repo.py  # the only module that knows about JSON
+│   │   └── memory.py     # for tests
+│   ├── service.py        # the rules: ordering, overdue, filter, search, summary
+│   └── validators.py     # pure functions for the input
 ├── tests/
+│   ├── test_repositories.py  # the contract every repository has to satisfy
+│   ├── test_json_repo.py     # the behaviours that belong to the file alone
+│   └── ...
 ├── pyproject.toml
 ├── GLOSSARY.md
-└── docs/adr/            # the decisions, and why they were taken
+└── docs/adr/             # the decisions, and why they were taken
 ```
 
 Three rules keep those apart, and they are the main lesson of the project:
 
 1. Only `cli.py` calls `input()` or `print()`.
-2. `manager.py` never touches the disk.
+2. The service never touches the disk. It asks a repository, and only the repository modules know about files and JSON.
 3. `validators.py` holds pure functions, so each rule is a short test.
 
 ## What I would improve
 
 - Editing the priority or the due date of a task that already exists. Only the title can be edited today, so fixing a wrong due date means deleting the task and adding it again.
 - Sorting and paging in the store instead of in Python. Fine for a few hundred tasks, wrong for a hundred thousand.
-- A second place to keep the tasks. The rules do not care where tasks are stored, and the code should prove that.
+- A third place to keep the tasks. The contract suite now states what any repository has to do, so a database backend is one class and no change to the rules.
 - A warning when a task is about to become due.
