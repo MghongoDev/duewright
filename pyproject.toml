@@ -19,3 +19,17 @@ duewright = "duewright.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["duewright*"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["duewright"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = true
+disallow_untyped_defs = true
