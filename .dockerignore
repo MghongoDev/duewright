@@ -1,0 +1,26 @@
+# Everything here stays on the machine that builds the image. The Dockerfile
+# copies only what it needs, and this is the second line of defence.
+.venv/
+.git/
+.github/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Local tasks and secrets.
+*.db
+tasks.json*
+.env
+
+# Not needed to run the API.
+tests/
+scripts/
+docs/
+GLOSSARY.md
+duewright-implementation-guide.md

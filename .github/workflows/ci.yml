@@ -28,3 +28,86 @@ jobs:
         run: |
           python scripts/concurrency_demo.py --backend sqlite
           python scripts/concurrency_demo.py --backend json
+
+  image:
+    runs-on: ubuntu-latest
+    env:
+      KEY: smoke-test-key-1234
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the image
+        run: docker build -t duewright .
+      - name: The container runs as a user that is not root
+        run: |
+          uid=$(docker run --rm duewright id -u)
+          echo "the container runs as uid $uid"
+          test "$uid" != "0"
+      - name: Nothing local was copied into the image
+        run: |
+          listing=$(docker run --rm duewright sh -c 'ls -a /app /data')
+          echo "$listing"
+          if echo "$listing" | grep -qE '\.venv|\.git|\.env|tasks\.db|tasks\.json'; then
+            echo "a local file was copied into the image"
+            exit 1
+          fi
+      - name: Start the container
+        run: |
+          docker run -d --name duewright \
+            -p 127.0.0.1:8000:8000 \
+            -e DUEWRIGHT_API_KEY="$KEY" \
+            -v duewright-data:/data \
+            duewright
+      - name: Wait for the health route, and fail when it does not answer
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -fsS --noproxy '*' http://127.0.0.1:8000/health; then
+              echo "the health route answered on attempt $attempt"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "the health route never answered"
+          docker logs duewright
+          exit 1
+      - name: The port is published on the loopback address only
+        run: |
+          address=$(hostname -I | awk '{print $1}')
+          echo "trying the machine's own address, $address"
+          if curl -fsS --noproxy '*' --connect-timeout 5 "http://$address:8000/health"; then
+            echo "the port answers from outside the loopback address"
+            exit 1
+          fi
+          echo "not reachable from $address, which is what publishing on 127.0.0.1 means"
+      - name: A request with no key is refused
+        run: |
+          code=$(curl -s --noproxy '*' -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/v1/tasks)
+          echo "a request carrying no key got $code"
+          test "$code" = "401"
+      - name: Create a task through the container
+        run: |
+          curl -fsS --noproxy '*' -X POST http://127.0.0.1:8000/api/v1/tasks \
+            -H "Content-Type: application/json" -H "X-API-Key: $KEY" \
+            -d '{"title":"Bought through Docker","priority":"high"}'
+          echo
+      - name: Restart the container and check the task is still there
+        run: |
+          docker stop duewright
+          docker rm duewright
+          docker run -d --name duewright \
+            -p 127.0.0.1:8000:8000 \
+            -e DUEWRIGHT_API_KEY="$KEY" \
+            -v duewright-data:/data \
+            duewright
+          for attempt in $(seq 1 30); do
+            if curl -fsS --noproxy '*' http://127.0.0.1:8000/health; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS --noproxy '*' http://127.0.0.1:8000/api/v1/tasks \
+            -H "X-API-Key: $KEY" | tee listed.json
+          grep -q "Bought through Docker" listed.json
+          echo "the task survived the container being replaced"
+      - name: The container's own log says what it did
+        if: always()
+        run: docker logs duewright || true
