@@ -1,8 +1,11 @@
 """Tests for the menu, run as a process so the real entry point is exercised."""
 
+import json
 import os
 import subprocess
 import sys
+
+CREATED = "2026-10-18T17:52:04+00:00"
 
 
 def run_menu(answers, data_dir, cwd, backend=None):
@@ -20,6 +23,43 @@ def run_menu(answers, data_dir, cwd, backend=None):
         encoding="utf-8",
         env=environment,
         cwd=str(cwd),
+    )
+
+
+def run_command(arguments, data_dir, cwd):
+    """Run one of the operational commands as a process."""
+    environment = dict(os.environ, DUEWRIGHT_DATA_DIR=str(data_dir))
+    environment.pop("DUEWRIGHT_BACKEND", None)
+    return subprocess.run(
+        [sys.executable, "-m", "duewright", *arguments],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=environment,
+        cwd=str(cwd),
+    )
+
+
+def write_a_file(path):
+    """A task file holding one task."""
+    path.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "next_id": 2,
+                "tasks": [
+                    {
+                        "id": 1,
+                        "title": "Buy milk",
+                        "done": False,
+                        "created_at": CREATED,
+                        "priority": "high",
+                        "due_date": None,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
     )
 
 
@@ -80,3 +120,39 @@ def test_the_menu_refuses_a_backend_it_does_not_have(tmp_path):
     result = run_menu("0\n", tmp_path, tmp_path, backend="postgres")
     assert "Cannot start" in result.stdout
     assert "Goodbye" not in result.stdout
+
+
+def test_the_migration_command_moves_the_tasks(tmp_path):
+    """The command moves the file's tasks into the database the menu then reads."""
+    source = tmp_path / "tasks.json"
+    write_a_file(source)
+    result = run_command(["migrate-json", str(source)], tmp_path, tmp_path)
+    assert result.returncode == 0
+    assert "Moved 1 tasks" in result.stdout
+    listing = run_menu("2\n0\n", tmp_path, tmp_path)
+    assert "Buy milk" in listing.stdout
+    assert "1 pending, 0 overdue, 0 done" in listing.stdout
+
+
+def test_the_migration_command_dry_run_writes_nothing(tmp_path):
+    source = tmp_path / "tasks.json"
+    write_a_file(source)
+    result = run_command(["migrate-json", str(source), "--dry-run"], tmp_path, tmp_path)
+    assert result.returncode == 0
+    assert "dry run" in result.stdout
+    assert not (tmp_path / "tasks.db").exists()
+
+
+def test_the_migration_command_refuses_a_database_that_holds_tasks(tmp_path):
+    source = tmp_path / "tasks.json"
+    write_a_file(source)
+    run_command(["migrate-json", str(source)], tmp_path, tmp_path)
+    again = run_command(["migrate-json", str(source)], tmp_path, tmp_path)
+    assert again.returncode == 1
+    assert "already holds" in again.stdout
+
+
+def test_an_unknown_command_says_so(tmp_path):
+    result = run_command(["sing"], tmp_path, tmp_path)
+    assert result.returncode == 2
+    assert "is not a command" in result.stdout

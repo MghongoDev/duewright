@@ -21,6 +21,10 @@ class UnknownBackendError(ValueError):
     """The settings name a place to keep tasks that this program does not have."""
 
 
+class MigrationError(Exception):
+    """The tasks could not be moved from the file into the database."""
+
+
 class CorruptStorageError(Exception):
     """The store could not be read at all.
 

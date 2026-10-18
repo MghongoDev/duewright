@@ -90,14 +90,6 @@ A SQLite database called `tasks.db`, in a folder named `.duewright` inside your 
 
 Set `DUEWRIGHT_BACKEND=json` to keep the tasks in a `tasks.json` file instead. Both backends pass the same contract tests and the menu behaves identically, but only the database copes with two copies of the program running at once.
 
-Version 0.1.0 kept the JSON file beside the code. If you ran that version, move it into the data folder once:
-
-```
-mv tasks.json ~/.duewright/tasks.json
-```
-
-On Windows, that is `move tasks.json %USERPROFILE%\.duewright\tasks.json`. If you move it, also set `DUEWRIGHT_BACKEND=json`, because the database is the default and your tasks would not be read otherwise.
-
 The database refuses bad data on its own: a title that is empty or longer than 100 characters, a priority that is not one of the three, and a done flag that is not 0 or 1 are all rejected by the table, so a bug in the code above cannot write them. It also records which version of the schema it holds, and refuses to open a database written by a newer version of the program.
 
 The JSON file, when you use it, is plain JSON and looks like this:
@@ -121,13 +113,26 @@ The JSON file, when you use it, is plain JSON and looks like this:
 
 Three details are worth knowing about it. Every write goes to a temporary file that is swapped into place in one step, so a crash part-way through cannot leave a half-written file. If the file cannot be read, Duewright keeps it under a name like `tasks.json.corrupt-20261018-182011` and starts with an empty list, because that file may be the only copy of your tasks. And a file written by a newer version is refused rather than opened, so an older program cannot quietly drop fields it does not understand.
 
+## Moving a JSON file into the database
+
+If your tasks are in a JSON file, one command moves them into the database:
+
+```
+duewright migrate-json ~/.duewright/tasks.json --dry-run
+duewright migrate-json ~/.duewright/tasks.json
+```
+
+The dry run reads the file and checks it without writing anything. The real run moves the tasks, keeping their ids and their creation times, then reads both sides back and compares every field before it reports success. The file itself is left exactly as it was, so it stays a copy of your tasks.
+
+It refuses to run when the database already holds tasks, because merging two lists is not what the command is for.
+
 ## Layout
 
 ```
 duewright/
 ├── duewright/
 │   ├── __main__.py       # python -m duewright
-│   ├── cli.py            # the menu, the only module that reads input or prints
+│   ├── cli.py            # the menu and the commands, the only module that prints
 │   ├── config.py         # where the tasks live, and which repository keeps them
 │   ├── errors.py         # the errors the package raises
 │   ├── models.py         # Task
@@ -135,6 +140,7 @@ duewright/
 │   │   ├── base.py       # the interface a repository has to satisfy
 │   │   ├── json_repo.py  # the only module that knows about JSON
 │   │   ├── memory.py     # for tests
+│   │   ├── migrate.py    # moving a JSON file into the database
 │   │   └── sqlite_repo.py # the database, and the only module that knows SQL
 │   ├── service.py        # the rules: ordering, overdue, filter, search, summary
 │   └── validators.py     # pure functions for the input
@@ -142,6 +148,7 @@ duewright/
 │   ├── test_repositories.py  # the contract every repository has to satisfy
 │   ├── test_json_repo.py     # the behaviours that belong to the file alone
 │   ├── test_sqlite_repo.py   # the behaviours that belong to the database alone
+│   ├── test_migrate.py       # moving the tasks over without losing any
 │   └── ...
 ├── pyproject.toml
 ├── GLOSSARY.md
