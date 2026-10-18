@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from duewright import config
 from duewright.manager import TaskManager, TaskNotFoundError, is_due_today, is_overdue
 from duewright.models import Task
 from duewright.storage import (
@@ -36,11 +37,18 @@ MENU = """
 0) Quit
 """
 
-# Anchored to the project folder rather than to the directory you happen to
-# launch from, so there is one tasks.json instead of one per working folder.
-TASKS_FILE = Path(__file__).resolve().parent.parent / "tasks.json"
+TASKS_FILE_NAME = "tasks.json"
 
 TITLE_COLUMN = 24
+
+
+def tasks_file() -> Path:
+    """Return the task file inside the per-user data folder.
+
+    The folder comes from the configuration, so the file no longer depends on
+    where the code is installed or on the folder the menu was started from.
+    """
+    return config.data_dir() / TASKS_FILE_NAME
 
 
 def show_menu() -> None:
@@ -109,7 +117,7 @@ def ask_confirm(question: str) -> bool:
 def commit(manager: TaskManager) -> None:
     """Write the current tasks to disk, reporting a write that fails."""
     try:
-        save_tasks(TASKS_FILE, manager.all(), manager.next_id)
+        save_tasks(tasks_file(), manager.all(), manager.next_id)
     except OSError as error:
         print(f"Your change was not saved: {error}")
         print("It will be lost when you quit.")
@@ -210,14 +218,15 @@ def handle_search(manager: TaskManager) -> None:
 
 def load_manager() -> TaskManager:
     """Build a manager from the task file, reporting a file it cannot read."""
+    path = tasks_file()
     try:
-        tasks, next_id = load_tasks(TASKS_FILE)
+        tasks, next_id = load_tasks(path)
     except CorruptStorageError as error:
-        print(f"{TASKS_FILE.name} could not be read: {error}.")
+        print(f"{path.name} could not be read: {error}.")
         print(f"It is kept as {error.spoiled_path.name}, and Duewright is starting empty.")
         tasks, next_id = [], 1
     except OSError as error:
-        print(f"Could not read {TASKS_FILE.name}: {error}")
+        print(f"Could not read {path.name}: {error}")
         print("Duewright is starting with an empty list.")
         tasks, next_id = [], 1
     return TaskManager(tasks, next_id)

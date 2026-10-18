@@ -1,21 +1,26 @@
 # Duewright
 
-A command-line task manager. You pick an option from a menu to add, list, edit, mark done and delete tasks, and every change is written to `tasks.json` in the project folder straight away.
+A command-line task manager. You pick an option from a menu to add, list, edit, mark done and delete tasks, and every change is written to a task file straight away.
 
 Tasks are numbered with a stable id, and an id is never handed to a second task, so a number you wrote down keeps pointing at the same task even after a deletion.
 
-## Run it
+## Install it
 
-Duewright needs Python 3.12 or newer, and nothing else.
+Duewright needs Python 3.12 or newer.
+
+```
+pip install -e ".[dev]"
+```
+
+That gives you a `duewright` command that works from any folder. Running it as a module works too:
 
 ```
 python -m duewright
 ```
 
-The tests need pytest:
+The `dev` extra brings pytest, which is what the tests need:
 
 ```
-pip install pytest
 python -m pytest
 ```
 
@@ -47,7 +52,7 @@ Pending tasks come first, then tasks that carry a due date, earliest due date fi
 ## Sample session
 
 ```
-$ python -m duewright
+$ duewright
 
 Duewright
 
@@ -77,7 +82,17 @@ Goodbye.
 
 ## Where the tasks live
 
-`tasks.json`, in the project folder next to the code. It is plain JSON, and it is in `.gitignore`, so your tasks never reach the repository.
+`tasks.json` in a folder named `.duewright` inside your home folder. It lives there rather than beside the code, so reinstalling or upgrading the program cannot touch your tasks. Set `DUEWRIGHT_DATA_DIR` to keep the file somewhere else, which is also how the tests stay away from real data.
+
+Version 0.1.0 kept the file beside the code instead. If you ran that version, move the file once and your tasks come with you:
+
+```
+mv tasks.json ~/.duewright/tasks.json
+```
+
+On Windows, that is `move tasks.json %USERPROFILE%\.duewright\tasks.json`.
+
+The file is plain JSON:
 
 ```json
 {
@@ -105,14 +120,15 @@ duewright/
 ├── duewright/
 │   ├── __main__.py      # python -m duewright
 │   ├── cli.py           # the menu, the only module that reads input or prints
+│   ├── config.py        # where the task file lives
 │   ├── manager.py       # the rules: ordering, overdue, filter, search, summary
 │   ├── models.py        # Task
 │   ├── storage.py       # the only module that knows about JSON and the filesystem
 │   └── validators.py    # pure functions for the input
 ├── tests/
+├── pyproject.toml
 ├── GLOSSARY.md
-├── docs/adr/            # the decisions, and why they were taken
-└── tasks.json           # created at runtime, not committed
+└── docs/adr/            # the decisions, and why they were taken
 ```
 
 Three rules keep those apart, and they are the main lesson of the project:
