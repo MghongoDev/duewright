@@ -43,6 +43,11 @@ MENU = """
 
 TITLE_COLUMN = 24
 
+# The address the server binds to unless it is told otherwise. It is the
+# loopback address rather than every address, so starting the server does not
+# put the task list on the network.
+LOOPBACK = "127.0.0.1"
+
 
 def show_menu() -> None:
     """Print the menu."""
@@ -258,6 +263,37 @@ def run_menu() -> None:
         print("\nGoodbye.")
 
 
+def run_server(arguments: list[str]) -> int:
+    """Serve the task list over HTTP, and return the exit code."""
+    parser = argparse.ArgumentParser(
+        prog="duewright serve",
+        description="Serve the task list over HTTP.",
+    )
+    parser.add_argument(
+        "--host",
+        default=LOOPBACK,
+        help=f"the address to bind to (default: {LOOPBACK})",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="the port to listen on (default: 8000)",
+    )
+    parsed = parser.parse_args(arguments)
+    # Imported here rather than at the top, so the menu works without the api
+    # extra installed.
+    import uvicorn
+
+    uvicorn.run(
+        "duewright.api.app:create_app",
+        factory=True,
+        host=parsed.host,
+        port=parsed.port,
+    )
+    return 0
+
+
 def run_migration(arguments: list[str]) -> int:
     """Move a task file into the database, and return the exit code."""
     parser = argparse.ArgumentParser(
@@ -286,13 +322,20 @@ def run_migration(arguments: list[str]) -> int:
     return 0
 
 
+# The operational commands, by the word that starts them. A bare duewright is
+# the menu.
+COMMANDS = {"migrate-json": run_migration, "serve": run_server}
+
+
 def main() -> None:
     """Run the menu, or one of the operational commands."""
     arguments = sys.argv[1:]
-    if arguments and arguments[0] == "migrate-json":
-        raise SystemExit(run_migration(arguments[1:]))
-    if arguments:
-        print(f"{arguments[0]!r} is not a command.")
+    if not arguments:
+        run_menu()
+        return
+    command = COMMANDS.get(arguments[0])
+    if command is None:
+        print(f"{arguments[0]!r} is not a command. The commands are {', '.join(COMMANDS)}.")
         print("Run duewright with no arguments for the menu.")
         raise SystemExit(2)
-    run_menu()
+    raise SystemExit(command(arguments[1:]))
