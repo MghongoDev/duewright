@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "duewright"
-version = "0.2.0"
-description = "A command-line task manager"
+version = "1.0.0"
+description = "A task manager with a menu, a REST API and a database"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
 
 [project.optional-dependencies]
-api = ["fastapi", "uvicorn"]
-dev = ["pytest", "pytest-cov", "ruff", "mypy", "httpx"]
+api = ["fastapi>=0.146", "uvicorn>=0.54"]
+dev = ["pytest", "pytest-cov", "ruff", "mypy", "httpx>=0.28"]
 
 [project.scripts]
 duewright = "duewright.cli:main"
@@ -33,3 +33,9 @@ known-first-party = ["duewright"]
 python_version = "3.12"
 warn_unused_ignores = true
 disallow_untyped_defs = true
+
+[tool.coverage.run]
+# Measure the code the tests start as processes too. Without this the menu
+# looks untested, because its tests drive it in another process.
+patch = ["subprocess"]
+parallel = true
