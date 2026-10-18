@@ -8,7 +8,11 @@ from fastapi.testclient import TestClient
 from duewright.api.app import create_app
 from duewright.api.deps import get_service
 from duewright.repositories.memory import InMemoryTaskRepository
+from duewright.repositories.sqlite_repo import SqliteTaskRepository
 from duewright.service import TaskService
+
+TEST_KEY = "test-key-1234567890"
+HEADER = "X-API-Key"
 
 
 class UntouchableRepository:
@@ -30,6 +34,32 @@ class UntouchableRepository:
         raise AssertionError("the store was written")
 
 
+class BrokenRepository:
+    """A store that fails the way a bug would, to see what the client is told."""
+
+    def list_tasks(self, done=None, query=None):
+        raise RuntimeError("something went wrong inside")
+
+    def get(self, task_id):
+        raise RuntimeError("something went wrong inside")
+
+    def add(self, task):
+        raise RuntimeError("something went wrong inside")
+
+    def update(self, task):
+        raise RuntimeError("something went wrong inside")
+
+    def delete(self, task_id):
+        raise RuntimeError("something went wrong inside")
+
+
+@pytest.fixture(autouse=True)
+def api_key(monkeypatch):
+    """Every test runs with a key set, unless it clears it on purpose."""
+    monkeypatch.setenv("DUEWRIGHT_API_KEY", TEST_KEY)
+    return TEST_KEY
+
+
 @pytest.fixture
 def service():
     """A service over a store that keeps nothing."""
@@ -37,10 +67,22 @@ def service():
 
 
 @pytest.fixture
-def client(service):
-    """A client for the app, with the store swapped for the in-memory one."""
-    app = create_app()
-    app.dependency_overrides[get_service] = lambda: service
+def app(service):
+    """The application, with the store swapped for the in-memory one."""
+    application = create_app()
+    application.dependency_overrides[get_service] = lambda: service
+    return application
+
+
+@pytest.fixture
+def client(app):
+    """A client that carries the key."""
+    return TestClient(app, headers={HEADER: TEST_KEY})
+
+
+@pytest.fixture
+def client_without_key(app):
+    """A client that carries nothing."""
     return TestClient(app)
 
 
@@ -207,10 +249,122 @@ def test_the_unversioned_path_is_not_there(client):
     assert client.get("/tasks").status_code == 404
 
 
-def test_the_routes_that_touch_the_store_are_not_async():
+SKIPPED_METHODS = {"HEAD", "OPTIONS"}
+
+
+def routes_of(app):
+    """Every route the application answers, included routers and all.
+
+    A router keeps its own routes rather than copying them into the
+    application, so the walk steps into it. Walking the real routes rather than
+    the documented ones means a route hidden from the docs is still checked.
+    """
+    for route in app.routes:
+        inner = getattr(route, "routes", None)
+        if inner is None:
+            inner = getattr(getattr(route, "original_router", None), "routes", None)
+        if inner:
+            yield from inner
+        else:
+            yield route
+
+
+def test_the_routes_that_touch_the_store_are_not_async(app):
     """A blocking store call inside an async route would freeze the whole server."""
-    app = create_app()
-    touching = [route for route in app.routes if getattr(route, "path", "").startswith("/api/v1")]
-    assert touching
+    touching = [
+        route for route in routes_of(app) if getattr(route, "path", "").startswith("/api/v1")
+    ]
+    assert len(touching) >= 5
     for route in touching:
         assert not inspect.iscoroutinefunction(route.endpoint), route.path
+
+
+def test_a_request_with_no_key_is_401(client_without_key):
+    response = client_without_key.get("/api/v1/tasks")
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or missing API key"
+
+
+def test_a_wrong_key_is_401(app):
+    response = TestClient(app, headers={HEADER: "wrong-key-1234567890"}).get("/api/v1/tasks")
+    assert response.status_code == 401
+
+
+def test_the_right_key_is_200(client):
+    assert client.get("/api/v1/tasks").status_code == 200
+
+
+def test_health_works_without_a_key(client_without_key):
+    response = client_without_key.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_a_server_with_no_key_configured_rejects_everything(app, monkeypatch):
+    """Fail closed: no key set means no request is allowed, not every request."""
+    monkeypatch.delenv("DUEWRIGHT_API_KEY")
+    response = TestClient(app, headers={HEADER: TEST_KEY}).get("/api/v1/tasks")
+    assert response.status_code == 401
+
+
+def test_a_server_with_an_empty_key_configured_rejects_everything(app, monkeypatch):
+    monkeypatch.setenv("DUEWRIGHT_API_KEY", "")
+    response = TestClient(app, headers={HEADER: TEST_KEY}).get("/api/v1/tasks")
+    assert response.status_code == 401
+
+
+def test_the_key_never_appears_in_a_response_body(client):
+    created = create(client, title="Buy milk")
+    assert TEST_KEY not in created.text
+    assert TEST_KEY not in client.get("/api/v1/tasks").text
+
+
+def test_every_route_under_the_versioned_path_requires_a_key(app, client_without_key):
+    """A route added later cannot be left open by accident."""
+    checked = 0
+    for route in routes_of(app):
+        path = getattr(route, "path", "")
+        if not path.startswith("/api/v1"):
+            continue
+        for method in route.methods - SKIPPED_METHODS:
+            response = client_without_key.request(method, path.replace("{task_id}", "1"))
+            assert response.status_code == 401, f"{method} {path} is not protected"
+            checked += 1
+    assert checked >= 5
+
+
+def test_the_documented_routes_say_the_key_is_required(app):
+    """So the interactive docs offer a way to send one."""
+    schema = app.openapi()
+    assert "X-API-Key" in str(schema["components"]["securitySchemes"])
+    for path, operations in schema["paths"].items():
+        if not path.startswith("/api/v1"):
+            continue
+        for method, operation in operations.items():
+            if method.upper() not in SKIPPED_METHODS:
+                assert operation.get("security"), f"{method} {path} declares no key"
+
+
+def test_an_unexpected_error_is_a_plain_500(app):
+    """No traceback and no file paths reach the client."""
+    app.dependency_overrides[get_service] = lambda: TaskService(BrokenRepository())
+    client = TestClient(app, headers={HEADER: TEST_KEY}, raise_server_exceptions=False)
+    response = client.get("/api/v1/tasks")
+    assert response.status_code == 500
+    body = response.text
+    assert "Traceback" not in body
+    assert "RuntimeError" not in body
+    assert "something went wrong inside" not in body
+    assert "duewright" not in body
+
+
+def test_the_real_store_works_through_the_api(tmp_path, monkeypatch):
+    """No overrides at all, so a wiring mistake cannot hide behind a fake."""
+    monkeypatch.setenv("DUEWRIGHT_DATA_DIR", str(tmp_path))
+    client = TestClient(create_app(), headers={HEADER: TEST_KEY})
+    created = client.post("/api/v1/tasks", json={"title": "Buy milk", "priority": "high"})
+    assert created.status_code == 201
+    listed = client.get("/api/v1/tasks").json()
+    assert [task["title"] for task in listed["items"]] == ["Buy milk"]
+    stored = SqliteTaskRepository(tmp_path / "tasks.db").list_tasks()
+    assert [task.title for task in stored] == ["Buy milk"]
