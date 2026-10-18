@@ -48,6 +48,20 @@ def is_due_today(task: Task, today: date) -> bool:
     return not task.done and task.due_date == today
 
 
+DUE_SOON_DAYS = 3
+
+
+def is_due_soon(task: Task, today: date) -> bool:
+    """Return True when a pending task is due within the next few days.
+
+    A task due today already has its own marker, and an overdue one has
+    another, so neither counts as due soon. The horizon is three days.
+    """
+    if task.done or task.due_date is None:
+        return False
+    return 0 < (task.due_date - today).days <= DUE_SOON_DAYS
+
+
 class TaskService:
     """Holds the rules and asks a repository to keep the results."""
 

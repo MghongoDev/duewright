@@ -35,3 +35,7 @@ _Avoid_: late, past due, expired
 **Due today**:
 A pending Task whose due date is today. It is not overdue.
 _Avoid_: due now, urgent today
+
+**Due soon**:
+A pending Task whose due date is after today and no more than three days away. It is not overdue, and it is not due today.
+_Avoid_: upcoming, approaching, imminent, nearly due, almost due

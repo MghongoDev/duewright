@@ -104,12 +104,13 @@ The list looks like this:
 ```
 [ ]    1  Pay the rent              high    due 2026-10-05  OVERDUE
 [ ]    2  Water the plants          medium  due 2026-10-18  DUE TODAY
+[ ]    5  Call the plumber          low     due 2026-10-20  DUE SOON
 [ ]    4  Call Sam                  high
 [x]    3  Book tickets              low
-3 pending, 1 overdue, 1 done
+4 pending, 1 overdue, 1 done
 ```
 
-Pending tasks come first, then tasks that carry a due date, earliest due date first, then higher priority before lower, then lower id. A task is overdue when it is pending and its due date has passed. A task due today gets its own marker, because it is not late yet.
+Pending tasks come first, then tasks that carry a due date, earliest due date first, then higher priority before lower, then lower id. A task is overdue when it is pending and its due date has passed. A task due today gets its own marker, because it is not late yet. A task due within the next three days is marked DUE SOON, so the warning arrives before the day rather than on it.
 
 Editing offers the title, the priority and the due date in turn. A field left blank keeps what the task already has, and answering none to the due date clears it. That is the same rule the API applies to a field left out of a request.
 
@@ -379,4 +380,3 @@ duewright/
 
 - Sorting and paging in the store instead of in Python.
 - A fourth place to keep the tasks, such as PostgreSQL. The contract suite and the interface are in place, so a new backend is one class and no change to the rules.
-- A warning when a task is about to become due.

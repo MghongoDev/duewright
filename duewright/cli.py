@@ -21,7 +21,7 @@ from duewright.errors import (
 from duewright.models import Task
 from duewright.repositories.migrate import migrate_json
 from duewright.security import GENERATE_A_KEY, key_problem
-from duewright.service import TaskService, is_due_today, is_overdue
+from duewright.service import TaskService, is_due_soon, is_due_today, is_overdue
 from duewright.validators import (
     CLEAR,
     clean_title,
@@ -71,6 +71,8 @@ def format_task(task: Task, today: date) -> str:
         line += "  OVERDUE"
     elif is_due_today(task, today):
         line += "  DUE TODAY"
+    elif is_due_soon(task, today):
+        line += "  DUE SOON"
     return line.rstrip()
 
 

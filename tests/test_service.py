@@ -1,12 +1,13 @@
 """Tests for the rules the service holds."""
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
 from duewright.errors import TaskNotFoundError
+from duewright.models import Task
 from duewright.repositories.memory import InMemoryTaskRepository
-from duewright.service import TaskService, is_due_today, is_overdue
+from duewright.service import TaskService, is_due_soon, is_due_today, is_overdue
 
 TODAY = date(2026, 10, 18)
 
@@ -202,3 +203,22 @@ def test_a_page_past_the_end_is_empty(service):
     page, total = service.list_tasks(limit=10, offset=10)
     assert page == []
     assert total == 1
+
+
+@pytest.mark.parametrize(
+    ("days_away", "expected"),
+    [(-1, False), (0, False), (1, True), (3, True), (4, False)],
+)
+def test_a_task_is_due_soon_inside_the_horizon(days_away, expected):
+    """Three days is the horizon, and the day itself belongs to due today."""
+    task = Task(title="Buy milk", due_date=TODAY + timedelta(days=days_away))
+    assert is_due_soon(task, TODAY) is expected
+
+
+def test_a_done_task_is_never_due_soon():
+    task = Task(title="Buy milk", done=True, due_date=TODAY + timedelta(days=1))
+    assert is_due_soon(task, TODAY) is False
+
+
+def test_a_task_with_no_due_date_is_never_due_soon():
+    assert is_due_soon(Task(title="Buy milk"), TODAY) is False
