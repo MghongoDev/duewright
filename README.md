@@ -224,6 +224,19 @@ The dry run reads the file and checks it without writing anything. The real run 
 
 It refuses to run when the database already holds tasks, because merging two lists is not what the command is for.
 
+### Upgrading from 0.1.0
+
+The 0.1.0 release kept its file beside the code, at the top of the folder you installed from, beside the `duewright` folder itself. It looked for it there rather than in your data folder, so this version, which reads the data folder, opens with an empty list. Nothing is lost: the file is exactly where it was, and nothing has written to it since.
+
+Point the command at that file and the tasks move across:
+
+```
+duewright migrate-json /path/to/duewright/tasks.json --dry-run
+duewright migrate-json /path/to/duewright/tasks.json
+```
+
+The file is read with the same loader the program uses, so both versions the project has written are understood, and the tasks keep their ids, their priorities, their due dates and their creation times.
+
 ## How it is built
 
 ```
