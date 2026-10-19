@@ -1,10 +1,11 @@
 """Tests for the rules the service holds."""
 
+import re
 from datetime import date, timedelta
 
 import pytest
 
-from duewright.errors import TaskNotFoundError
+from duewright.errors import InvalidTaskError, TaskNotFoundError
 from duewright.models import Task
 from duewright.repositories.memory import InMemoryTaskRepository
 from duewright.service import TaskService, is_due_soon, is_due_today, is_overdue
@@ -52,13 +53,32 @@ def test_deleting_a_middle_task_leaves_the_other_ids_alone(service):
     assert [task.id for task in page] == [1, 3]
 
 
-def test_update_title_leaves_the_other_tasks_alone(service):
+def test_changing_one_task_leaves_the_others_alone(service):
+    """The general path changes one task and touches nothing else."""
     service.add("Buy milk")
     service.add("Call Sam")
-    service.update_title(1, "Buy oat milk")
+    service.change(1, {"title": "Buy oat milk"})
     assert service.get(1).title == "Buy oat milk"
     page, _ = service.list_tasks()
     assert [task.title for task in page] == ["Buy oat milk", "Call Sam"]
+
+
+@pytest.mark.parametrize(
+    ("changes", "refusal"),
+    [
+        ({"title": None}, "title cannot be null"),
+        ({"title": "   "}, "A title is required."),
+        ({"priority": "urgent"}, "Priority is low, medium or high."),
+        ({"urgent": True}, "urgent is not a field of a task."),
+    ],
+    ids=["null title", "blank title", "unknown priority", "unknown field"],
+)
+def test_the_general_path_refuses_what_it_cannot_apply(service, changes, refusal):
+    """A change it cannot apply is refused, and the task keeps what it had."""
+    service.add("Buy milk")
+    with pytest.raises(InvalidTaskError, match=re.escape(refusal)):
+        service.change(1, changes)
+    assert service.get(1).title == "Buy milk"
 
 
 def test_toggle_done_flips_the_flag_both_ways(service):
@@ -73,11 +93,11 @@ def test_toggle_done_flips_the_flag_both_ways(service):
     "action",
     [
         lambda service: service.get(99),
-        lambda service: service.update_title(99, "nothing"),
+        lambda service: service.change(99, {"title": "nothing"}),
         lambda service: service.toggle_done(99),
         lambda service: service.delete(99),
     ],
-    ids=["get", "update_title", "toggle_done", "delete"],
+    ids=["get", "change", "toggle_done", "delete"],
 )
 def test_unknown_id_raises(service, action):
     service.add("Buy milk")
