@@ -68,10 +68,6 @@ class TaskService:
         """Return the task with this id, or raise TaskNotFoundError."""
         return self.repository.get(task_id)
 
-    def update_title(self, task_id: int, title: str) -> Task:
-        """Replace a task's title and return the task."""
-        return self.change(task_id, {"title": title})
-
     def change(self, task_id: int, changes: dict[str, Any]) -> Task:
         """Apply the changes that were given to one task and return it.
 
